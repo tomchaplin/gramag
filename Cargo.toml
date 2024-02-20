@@ -1,0 +1,15 @@
+[package]
+name = "gramag"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.80"
+dashmap = { version = "5.5.3", features = ["rayon"] }
+itertools = "0.12.1"
+par-dfs = { version = "0.0.7", features = ["rayon"] }
+petgraph = "0.6.4"
+rayon = "1.8.1"
+tabled = "0.15.0"
