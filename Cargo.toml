@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.80"
 dashmap = { version = "5.5.3", features = ["rayon"] }
 itertools = "0.12.1"
+lophat = { version = "0.10.0", path = "../lophat" }
 par-dfs = { version = "0.0.7", features = ["rayon"] }
 petgraph = "0.6.4"
 rayon = "1.8.1"

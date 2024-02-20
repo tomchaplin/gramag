@@ -2,7 +2,6 @@ use crate::distances::{Distance, DistanceMatrix};
 use crate::Path;
 
 use core::hash::Hash;
-use std::iter;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug};
@@ -12,11 +11,6 @@ use par_dfs::sync::par::IntoParallelIterator;
 use par_dfs::sync::{FastBfs, FastNode};
 use petgraph::visit::{GraphBase, GraphRef, IntoEdges, IntoNodeIdentifiers, Visitable};
 use rayon::prelude::{ParallelBridge, ParallelIterator};
-
-use tabled::builder::Builder;
-use tabled::settings::object::Columns;
-use tabled::settings::style::{HorizontalLine, VerticalLine};
-use tabled::settings::{Alignment, Style};
 
 pub trait SensibleNode: Debug + Eq + Hash + Clone + Copy {}
 impl<T> SensibleNode for T where T: Debug + Eq + Hash + Clone + Copy {}
@@ -49,9 +43,9 @@ where
     G: GraphRef,
     <G as GraphBase>::NodeId: Eq + Hash,
 {
-    g: G,
-    d: Arc<DistanceMatrix<G::NodeId>>,
-    l_max: usize,
+    pub g: G,
+    pub d: Arc<DistanceMatrix<G::NodeId>>,
+    pub l_max: usize,
 }
 
 impl<G> PathQuery<G>
@@ -69,10 +63,14 @@ where
     G: GraphRef + IntoNodeIdentifiers,
     <G as GraphBase>::NodeId: SensibleNode,
 {
-    pub fn key_iterator<'a>(&'a self) -> impl Iterator<Item = PathKey<G::NodeId>> + 'a {
+    pub fn node_pair_iterator<'a>(&'a self) -> impl Iterator<Item = (G::NodeId, G::NodeId)> + 'a {
         self.g
             .node_identifiers()
             .flat_map(|s| self.g.node_identifiers().map(move |t| (s, t)))
+    }
+
+    pub fn key_iterator<'a>(&'a self) -> impl Iterator<Item = PathKey<G::NodeId>> + 'a {
+        self.node_pair_iterator()
             .flat_map(|(s, t)| (0..=self.l_max).map(move |k| (s, t, k)))
             .flat_map(|(s, t, k)| (0..=self.l_max).map(move |l| (s, t, k, l)))
             .map(|(s, t, k, l)| PathKey { s, t, k, l })
@@ -109,12 +107,22 @@ where
         self.paths.entry(*key).or_default().insert(path, idx);
     }
 
-    fn num_paths(&self, key: &PathKey<G::NodeId>) -> usize {
+    pub fn num_paths(&self, key: &PathKey<G::NodeId>) -> usize {
         if let Some(sub_paths) = self.paths.get(key) {
             sub_paths.len()
         } else {
             0
         }
+    }
+
+    pub fn index_of(&self, key: &PathKey<G::NodeId>, path: &Path<G::NodeId>) -> usize {
+        self.paths
+            .get(key)
+            .unwrap()
+            .get(path)
+            .unwrap()
+            .value()
+            .clone()
     }
 }
 
@@ -142,36 +150,6 @@ where
                     .collect()
             })
             .collect()
-    }
-
-    pub fn rank_table(&self) -> String {
-        let mut builder = Builder::new();
-
-        // Header
-
-        let header = iter::once(format!("k="))
-            .chain((0..(self.query.l_max + 1)).map(move |k| format!("{}", k)));
-        builder.push_record(header);
-
-        for l in 0..(self.query.l_max + 1) {
-            let ranks =
-                (0..(self.query.l_max + 1)).map(move |k| format!("{}", self.aggregated_rank(k, l)));
-            let row = iter::once(format!("l={}", l)).chain(ranks);
-
-            builder.push_record(row)
-        }
-
-        let theme = Style::modern_rounded()
-            .horizontals([(1, HorizontalLine::inherit(Style::modern_rounded()))])
-            .verticals([(1, VerticalLine::inherit(Style::modern_rounded()))])
-            .remove_horizontal()
-            .remove_vertical();
-
-        builder
-            .build()
-            .with(theme)
-            .modify(Columns::new(1..), Alignment::right())
-            .to_string()
     }
 }
 

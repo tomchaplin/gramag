@@ -5,15 +5,26 @@ use petgraph::{
     visit::{IntoEdges, IntoNodeIdentifiers, Visitable},
 };
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Add};
 
 #[derive(Debug)]
 pub struct DistanceMatrix<NodeId: Eq + Hash>(DashMap<NodeId, HashMap<NodeId, usize>>);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Distance {
     Finite(usize),
     Infinite,
+}
+
+impl Add for Distance {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Distance::Finite(a), Distance::Finite(b)) => Distance::Finite(a + b),
+            _ => Distance::Infinite,
+        }
+    }
 }
 
 impl<NodeId: Eq + Hash> DistanceMatrix<NodeId> {
