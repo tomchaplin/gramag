@@ -10,8 +10,12 @@ use rayon::prelude::*;
 
 use crate::path_search::{PathContainer, PathKey, PathQuery, SensibleNode};
 
+// TODO: Add options for
+// 1. Anti-transpose
+// 2. Representatives
+
 pub fn compute_homology<G, C, Algo>(
-    path_container: &PathContainer<G>,
+    path_container: &PathContainer<G::NodeId>,
     query: PathQuery<G>,
     l: usize,
     node_pair: (G::NodeId, G::NodeId),
@@ -37,24 +41,25 @@ where
     // Compute offsets as cumulative sum of sizes of each dimension
 
     for k in 0..=query.l_max {
+        if k == 0 {
+            // k= 0 => no boundary
+            continue;
+        }
+
         let k_offset: usize = sizes[0..k].iter().sum();
-        let k_minus_1_offset: usize = if k > 0 {
-            sizes[0..(k - 1)].iter().sum()
-        } else {
-            0
-        };
+        let k_minus_1_offset: usize = sizes[0..(k - 1)].iter().sum();
         let key = PathKey { s, t, k, l };
-        let lower_key = PathKey { s, t, k: k - 1, l }; // This will overflow for k=0 but then the boundary is empty
+        let lower_key = PathKey { s, t, k: k - 1, l };
+
         let paths_with_key = path_container.paths.get(&key);
+
         if let Some(paths_with_key) = paths_with_key {
             for entry in paths_with_key.value() {
+                // Get path and its index in the chain complex
                 let path = entry.key();
                 let idx = entry.value();
-                // TODO:
-                // 1. Compute boundary of path
-                // 2. Add boundary to column total_idx
-                // Q: We should be able to do this in parallel, is it worth writing our own wrapper?
                 for i in 1..(path.len() - 1) {
+                    // For each interior vertex, check if removing changes length
                     let a = path[i - 1];
                     let mid = path[i];
                     let b = path[i + 1];
@@ -64,6 +69,9 @@ where
                     if d1 != d2 {
                         continue;
                     }
+
+                    // Length is same so its in the boundary
+                    // Just need to figure out which idx the path is in the chain complex
 
                     let mut bdry_path = path.clone();
                     bdry_path.remove(i);
@@ -78,10 +86,12 @@ where
             }
         }
     }
+
+    // Run the algorithm
     algo.decompose()
 }
 
-pub fn homology_ranks<C, Algo>(decomp: &Algo::Decomposition) -> Vec<isize>
+pub fn homology_ranks<C, Algo>(decomp: &Algo::Decomposition) -> Vec<usize>
 where
     C: Column,
     Algo: DecompositionAlgo<C>,
@@ -94,10 +104,12 @@ where
         if needed_ranks > n_ranks {
             let new_ranks = needed_ranks - n_ranks;
             for _ in 0..new_ranks {
-                ranks.push(0);
+                ranks.push(0 as usize);
             }
         }
-        ranks[degree] += amount
+        // Should never overflow to 0 because all of kernels appears first
+        // then all of the boundaries appear
+        ranks[degree] = ((ranks[degree] as isize) + amount) as usize;
     };
 
     for idx in 0..decomp.n_cols() {
@@ -117,7 +129,7 @@ where
 // TODO: Convert this into an actual reduce operation
 //       Ideally one that works with parallel iterators
 
-pub fn reduce_homology_ranks(hom_ranks: impl Iterator<Item = Vec<isize>>) -> Vec<usize> {
+pub fn reduce_homology_ranks(hom_ranks: impl Iterator<Item = Vec<usize>>) -> Vec<usize> {
     let mut ranks = vec![];
 
     let mut inc = |degree: usize, amount: usize| {
@@ -142,7 +154,7 @@ pub fn reduce_homology_ranks(hom_ranks: impl Iterator<Item = Vec<isize>>) -> Vec
 }
 
 pub fn all_homology_ranks_default<G>(
-    path_container: &PathContainer<G>,
+    path_container: &PathContainer<G::NodeId>,
     query: PathQuery<G>,
 ) -> Vec<Vec<usize>>
 where

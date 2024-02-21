@@ -78,28 +78,23 @@ where
 }
 
 #[derive(Debug)]
-pub struct PathContainer<G>
+pub struct PathContainer<NodeId>
 where
-    G: GraphRef,
-    G::NodeId: SensibleNode,
+    NodeId: SensibleNode,
 {
-    pub paths: DashMap<PathKey<G::NodeId>, DashMap<Path<G::NodeId>, usize>>,
-    query: PathQuery<G>,
+    pub paths: DashMap<PathKey<NodeId>, DashMap<Path<NodeId>, usize>>,
 }
 
-impl<G> PathContainer<G>
+impl<NodeId> PathContainer<NodeId>
 where
-    G: GraphRef,
-    G::NodeId: SensibleNode,
+    NodeId: SensibleNode,
 {
-    fn new(query: &PathQuery<G>) -> Self {
+    fn new() -> Self {
         Self {
             paths: DashMap::new(),
-            query: query.clone(),
         }
     }
-
-    fn store(&self, key: &PathKey<G::NodeId>, path: Path<G::NodeId>, idx: usize) {
+    fn store(&self, key: &PathKey<NodeId>, path: Path<NodeId>, idx: usize) {
         // We use or_default to insert an empty DashMap
         // if we haven't found a path with this key before
         // Note: To prevent race conditions, if key is not in self.paths
@@ -107,7 +102,7 @@ where
         self.paths.entry(*key).or_default().insert(path, idx);
     }
 
-    pub fn num_paths(&self, key: &PathKey<G::NodeId>) -> usize {
+    pub fn num_paths(&self, key: &PathKey<NodeId>) -> usize {
         if let Some(sub_paths) = self.paths.get(key) {
             sub_paths.len()
         } else {
@@ -115,7 +110,7 @@ where
         }
     }
 
-    pub fn index_of(&self, key: &PathKey<G::NodeId>, path: &Path<G::NodeId>) -> usize {
+    pub fn index_of(&self, key: &PathKey<NodeId>, path: &Path<NodeId>) -> usize {
         self.paths
             .get(key)
             .unwrap()
@@ -124,29 +119,27 @@ where
             .value()
             .clone()
     }
-}
 
-// TODO: Allow fixing s and/or t
-
-impl<G> PathContainer<G>
-where
-    G: GraphRef + IntoNodeIdentifiers,
-    G::NodeId: SensibleNode,
-{
-    pub fn aggregated_rank(&self, k: usize, l: usize) -> usize {
-        self.query
-            .g
-            .node_identifiers()
-            .flat_map(|s| self.query.g.node_identifiers().map(move |t| (s, t)))
+    pub fn aggregated_rank<I: Iterator<Item = (NodeId, NodeId)>>(
+        &self,
+        node_identifiers: impl Fn() -> I,
+        k: usize,
+        l: usize,
+    ) -> usize {
+        node_identifiers()
             .map(|(s, t)| self.num_paths(&PathKey { s, t, k, l }))
             .sum()
     }
 
-    pub fn rank_matrix(&self) -> Vec<Vec<usize>> {
-        (0..(self.query.l_max + 1))
+    pub fn rank_matrix<I: Iterator<Item = (NodeId, NodeId)>>(
+        &self,
+        node_identifiers: impl Fn() -> I + Copy,
+        l_max: usize,
+    ) -> Vec<Vec<usize>> {
+        (0..(l_max + 1))
             .map(|l| {
-                (0..(self.query.l_max + 1))
-                    .map(|k| self.aggregated_rank(k, l))
+                (0..(l_max + 1))
+                    .map(|k| self.aggregated_rank(node_identifiers, k, l))
                     .collect()
             })
             .collect()
@@ -281,14 +274,14 @@ where
     G::NodeId: SensibleNode + Send + Sync,
     <G as IntoNodeIdentifiers>::NodeIdentifiers: Send,
 {
-    pub fn run(&self) -> PathContainer<G>
+    pub fn run(&self) -> PathContainer<G::NodeId>
     where
         G: IntoEdges + Visitable + IntoNodeIdentifiers + Sync + Send,
         G::NodeId: SensibleNode + Send + Sync,
         <G as IntoNodeIdentifiers>::NodeIdentifiers: Send,
     {
         // Setup container for paths and their indexes
-        let container = PathContainer::new(&self);
+        let container = PathContainer::new();
 
         // Setup counters for the number of (s, t, k, l) paths encountered
         // This allows us to index such paths as we find them
