@@ -1,17 +1,19 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use lophat::{
-    algorithms::{SerialAlgorithm, SerialDecomposition},
-    columns::VecColumn,
+    algorithms::{Decomposition, SerialAlgorithm, SerialDecomposition},
+    columns::{Column, VecColumn},
+    options::LoPhatOptions,
 };
 use petgraph::{graph::NodeIndex, visit::IntoNodeIdentifiers, Directed, Graph};
 use pyo3::prelude::*;
 
 use crate::{
     distances::{parallel_all_pairs_distance, DistanceMatrix},
-    homology::{all_homology_ranks_default, compute_homology, homology_ranks},
-    path_search::{PathContainer, PathQuery},
+    homology::{all_homology_ranks_default, chain_group_sizes, compute_homology, homology_idxs},
+    path_search::{PathContainer, PathKey, PathQuery},
     utils::rank_table,
+    Path,
 };
 
 type PyDigraph = Graph<(), (), Directed, u32>;
@@ -33,25 +35,112 @@ struct MagGraph {
 }
 
 #[pyclass]
-struct MagnitudeHomology {
+struct StlHomology {
     decomposition: SerialDecomposition<VecColumn>,
     mag_graph: Py<MagGraph>,
+    homology_idxs: HashMap<usize, Vec<usize>>,
     #[pyo3(get)]
-    ranks: Vec<usize>,
+    has_reps: bool,
+    #[pyo3(get)]
+    node_pair: (u32, u32),
+    #[pyo3(get)]
+    l: usize,
 }
 
 // TODO:
 // 1. Compute and store pairings upon init
 // 2. Support representative lookup
 
-impl MagnitudeHomology {
-    fn new(decomposition: SerialDecomposition<VecColumn>, mag_graph: Py<MagGraph>) -> Self {
-        let ranks = homology_ranks::<VecColumn, SerialAlgorithm<VecColumn>>(&decomposition);
+impl StlHomology {
+    fn new(
+        decomposition: SerialDecomposition<VecColumn>,
+        mag_graph: Py<MagGraph>,
+        has_reps: bool,
+        node_pair: (u32, u32),
+        l: usize,
+    ) -> Self {
+        let homology_idxs = homology_idxs(&decomposition);
         Self {
             decomposition,
             mag_graph,
-            ranks,
+            homology_idxs,
+            has_reps,
+            node_pair,
+            l,
         }
+    }
+
+    // idx is the chain complex index of a homology class (unpaired column)
+    fn collect_representative(&self, k: usize, idx: usize, py: Python<'_>) -> Vec<Path<u32>> {
+        let mg = self.mag_graph.borrow(py);
+        let path_container = &mg.path_container;
+        let (s, t) = self.node_pair;
+        let sizes = chain_group_sizes(
+            path_container,
+            (NodeIndex::from(s), NodeIndex::from(t)),
+            self.l,
+            self.l,
+        );
+
+        let dim_offset: usize = sizes[0..k].iter().sum();
+
+        let v_col: Vec<_> = self
+            .decomposition
+            .get_v_col(idx)
+            .unwrap()
+            .entries()
+            .collect();
+
+        let key = PathKey {
+            s: NodeIndex::from(s),
+            t: NodeIndex::from(t),
+            k,
+            l: self.l,
+        };
+
+        v_col
+            .into_iter()
+            .map(|cc_idx| {
+                path_container
+                    .path_at_index(&key, cc_idx - dim_offset)
+                    .unwrap()
+            })
+            .map(|path| path.into_iter().map(|ix| ix.index() as u32).collect())
+            .collect()
+    }
+}
+
+#[pymethods]
+impl StlHomology {
+    #[getter]
+    fn ranks(&self) -> HashMap<usize, usize> {
+        self.homology_idxs
+            .iter()
+            .map(|(&dim, idxs)| (dim, idxs.len()))
+            .collect()
+    }
+
+    // This might be quite slow because idx -> Path is slow in HashMap
+    #[getter]
+    fn representatives(&self, py: Python<'_>) -> Option<HashMap<usize, Vec<Vec<Path<u32>>>>> {
+        // TODO: Check that we actually have representatives
+        if !self.has_reps {
+            return None;
+        }
+
+        Some(
+            self.homology_idxs
+                .iter()
+                .map(|(&dim, idxs)| {
+                    (
+                        dim,
+                        idxs.iter()
+                            .map(|&i| self.collect_representative(dim, i, py))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        )
     }
 }
 
@@ -128,11 +217,13 @@ impl MagGraph {
         all_homology_ranks_default(&self.path_container, self.build_query(self.l_max.unwrap()))
     }
 
+    // TODO: Add flag for representatives
     fn stl_homology(
         slf: PyRef<'_, Self>,
         node_pair: (u32, u32),
         l: usize,
-    ) -> Option<MagnitudeHomology> {
+        representatives: Option<bool>,
+    ) -> Option<StlHomology> {
         let (s, t) = node_pair;
         let l_max = slf.l_max?;
         if l_max < l {
@@ -140,14 +231,26 @@ impl MagGraph {
         }
         let query = slf.build_query(l_max);
 
+        let representatives = representatives.unwrap_or(false);
+
+        let mut options = LoPhatOptions::default();
+        options.maintain_v = representatives;
+
         let decomposition = compute_homology::<&PyDigraph, VecColumn, SerialAlgorithm<VecColumn>>(
             &slf.path_container,
             query,
             l,
             (NodeIndex::from(s), NodeIndex::from(t)),
+            Some(options),
         );
 
-        Some(MagnitudeHomology::new(decomposition, slf.into()))
+        Some(StlHomology::new(
+            decomposition,
+            slf.into(),
+            representatives,
+            node_pair,
+            l,
+        ))
     }
 }
 

@@ -120,6 +120,16 @@ where
             .clone()
     }
 
+    pub fn path_at_index(&self, key: &PathKey<NodeId>, idx: usize) -> Option<Path<NodeId>> {
+        self.paths.get(key)?.iter().find_map(|entry| {
+            if *entry.value() == idx {
+                return Some(entry.key().clone());
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn aggregated_rank<I: Iterator<Item = (NodeId, NodeId)>>(
         &self,
         node_identifiers: impl Fn() -> I,

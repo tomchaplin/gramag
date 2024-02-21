@@ -1,4 +1,4 @@
-use std::iter;
+use std::{collections::HashMap, iter};
 
 use lophat::{
     algorithms::{Decomposition, DecompositionAlgo, SerialAlgorithm},
@@ -14,11 +14,27 @@ use crate::path_search::{PathContainer, PathKey, PathQuery, SensibleNode};
 // 1. Anti-transpose
 // 2. Representatives
 
+pub fn chain_group_sizes<NodeId: SensibleNode>(
+    path_container: &PathContainer<NodeId>,
+    node_pair: (NodeId, NodeId),
+    l: usize,
+    k_max: usize,
+) -> Vec<usize> {
+    let (s, t) = node_pair;
+    (0..=k_max)
+        .map(|k| {
+            let key = PathKey { s, t, k, l };
+            path_container.num_paths(&key)
+        })
+        .collect()
+}
+
 pub fn compute_homology<G, C, Algo>(
     path_container: &PathContainer<G::NodeId>,
     query: PathQuery<G>,
     l: usize,
     node_pair: (G::NodeId, G::NodeId),
+    options: Option<Algo::Options>,
 ) -> Algo::Decomposition
 where
     G: GraphRef,
@@ -26,16 +42,14 @@ where
     C: Column,
     Algo: DecompositionAlgo<C>,
 {
-    // Setup algorithm to receive entries
     let (s, t) = node_pair;
-    let mut algo = Algo::init(None);
-    let mut sizes = vec![];
-    let empty_cols = (0..=query.l_max).flat_map(|k| {
-        let key = PathKey { s, t, k, l };
-        let num_k_cols = path_container.num_paths(&key);
-        sizes.push(num_k_cols.clone());
-        (0..num_k_cols).map(move |_i| C::new_with_dimension(k))
-    });
+
+    // Setup algorithm to receive entries
+
+    let mut algo = Algo::init(options);
+    let sizes = chain_group_sizes(&path_container, node_pair, l, query.l_max);
+    let empty_cols =
+        (0..=query.l_max).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
     algo = algo.add_cols(empty_cols);
 
     // Compute offsets as cumulative sum of sizes of each dimension
@@ -126,6 +140,23 @@ where
     ranks
 }
 
+// Returns a map indexed by dimension i
+// map[i] is a list of column-indices wherein non-dead homology is created
+
+pub fn homology_idxs<C, Algo>(decomposition: &Algo) -> HashMap<usize, Vec<usize>>
+where
+    C: Column,
+    Algo: Decomposition<C>,
+{
+    let mut map: HashMap<usize, Vec<usize>> = HashMap::new();
+    let diagram = decomposition.diagram();
+    for idx in diagram.unpaired {
+        let dim = decomposition.get_r_col(idx).dimension();
+        map.entry(dim).or_default().push(idx);
+    }
+    map
+}
+
 // TODO: Convert this into an actual reduce operation
 //       Ideally one that works with parallel iterators
 
@@ -175,6 +206,7 @@ where
                         query.clone(),
                         l,
                         node_pair.clone(),
+                        None,
                     );
                     homology_ranks::<VecColumn, SerialAlgorithm<VecColumn>>(&homology)
                 })

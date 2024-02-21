@@ -202,9 +202,9 @@ dependencies = [
 
 [[package]]
 name = "lophat"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d40851d8b2e5de548e4773b416e3d0db04b3660a0483d0ab267a67414158a57"
+checksum = "904d787174f07d474661ffcea5fdaee5460ef106d7745a911b957b0f391d18a5"
 dependencies = [
  "bit-set",
  "hashbrown 0.13.2",
