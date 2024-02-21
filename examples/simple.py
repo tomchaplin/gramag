@@ -1,10 +1,11 @@
-from gramag import MagnitudeHomology, format_table
+from gramag import MagGraph, format_table
 
 # Creation of mh may be slow, it does the following:
 # 1. Compute all pairwise distances
 # 2. Compute all the generators of each MC^{(s, t)}_{k, l}
 l_max = 10
-mh = MagnitudeHomology([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)], l_max)
+mh = MagGraph([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
+mh.populate_paths(10)
 
 # This is just counting, should be quick
 rk_gens = mh.rank_generators()

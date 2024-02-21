@@ -89,7 +89,7 @@ impl<NodeId> PathContainer<NodeId>
 where
     NodeId: SensibleNode,
 {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             paths: DashMap::new(),
         }
