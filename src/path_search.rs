@@ -3,7 +3,6 @@ use crate::homology::StlHomologyRs;
 use crate::Path;
 
 use core::hash::Hash;
-use std::iter;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -297,10 +296,6 @@ where
     where
         E: par_dfs::sync::ExtendQueue<Self, Self::Error>,
     {
-        //if depth - 1 > self.path_query.l_max {
-        //    return Ok(());
-        //}
-
         let final_vertex = self.path.last().unwrap();
 
         let longer_paths = self
@@ -405,51 +400,48 @@ where
             (0..=self.l).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
         algo = algo.add_cols(empty_cols);
 
-        // Compute offsets as cumulative sum of sizes of each dimension
-
+        // Loop through each homological dimension (k)
         for k in 0..=self.l {
             if k == 0 {
                 // k= 0 => no boundary
                 continue;
             }
 
+            // Setup offsets for k-paths and (k-1)-paths
             let k_offset: usize = sizes[0..k].iter().sum();
             let k_minus_1_offset: usize = sizes[0..(k - 1)].iter().sum();
-            let key = self.key_from_k(k);
+            let k_paths = self.parent_container.paths.get(&self.key_from_k(k));
 
-            let paths_with_key = self.parent_container.paths.get(&key);
+            let Some(k_paths) = k_paths else {
+                continue;
+            };
 
-            if let Some(paths_with_key) = paths_with_key {
-                for entry in paths_with_key.value() {
-                    // Get path and its index in the chain complex
-                    let path = entry.key();
-                    let idx = entry.value();
-                    for i in 1..(path.len() - 1) {
-                        // For each interior vertex, check if removing changes length
+            // Loop through all k-paths
+            for entry in k_paths.value() {
+                // Get path and its index in the chain complex
+                let path = entry.key();
+                let idx = entry.value();
+
+                // Only test removing interior vertices
+                let entries = (1..k)
+                    .filter(|&i| {
+                        // Path without vertex i appears in boundary
+                        // iff removing doesn't change length
                         let a = path[i - 1];
                         let mid = path[i];
                         let b = path[i + 1];
-
-                        let d1 = d.distance(&a, &mid) + d.distance(&mid, &b);
-                        let d2 = d.distance(&a, &b);
-                        if d1 != d2 {
-                            continue;
-                        }
-
-                        // Length is same so its in the boundary
-                        // Just need to figure out which idx the path is in the chain complex
-
+                        d.distance(&a, &mid) + d.distance(&mid, &b) == d.distance(&a, &b)
+                    })
+                    .map(|i| {
+                        // Get index of path with i^th vertex removed
                         let mut bdry_path = path.clone();
                         bdry_path.remove(i);
-
+                        // Could be slow
                         let bdry_path_idx = self.index_of(&bdry_path);
-
-                        algo = algo.add_entries(iter::once((
-                            bdry_path_idx + k_minus_1_offset,
-                            idx + k_offset,
-                        )));
-                    }
-                }
+                        // Add entry to boundary matrix, using appropriate offsets
+                        (bdry_path_idx + k_minus_1_offset, idx + k_offset)
+                    });
+                algo = algo.add_entries(entries);
             }
         }
 
