@@ -1,12 +1,17 @@
 use crate::distances::{Distance, DistanceMatrix};
+use crate::homology::StlHomologyRs;
 use crate::Path;
 
 use core::hash::Hash;
+use std::iter;
+use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug};
 
 use dashmap::DashMap;
+use lophat::algorithms::DecompositionAlgo;
+use lophat::columns::Column;
 use par_dfs::sync::par::IntoParallelIterator;
 use par_dfs::sync::{FastBfs, FastNode};
 use petgraph::visit::{GraphBase, GraphRef, IntoEdges, IntoNodeIdentifiers, Visitable};
@@ -74,6 +79,54 @@ where
             .flat_map(|(s, t)| (0..=self.l_max).map(move |k| (s, t, k)))
             .flat_map(|(s, t, k)| (0..=self.l_max).map(move |l| (s, t, k, l)))
             .map(|(s, t, k, l)| PathKey { s, t, k, l })
+    }
+}
+
+impl<G> PathQuery<G>
+where
+    G: IntoEdges + Visitable + IntoNodeIdentifiers + Sync + Send,
+    G::NodeId: SensibleNode + Send + Sync,
+    <G as IntoNodeIdentifiers>::NodeIdentifiers: Send,
+{
+    pub fn run(&self) -> PathContainer<G::NodeId> {
+        // Setup container for paths and their indexes
+        let container = PathContainer::new();
+
+        // Setup counters for the number of (s, t, k, l) paths encountered
+        // This allows us to index such paths as we find them
+        let mut counters = HashMap::new();
+        for key in self.key_iterator() {
+            counters.insert(key, AtomicUsize::new(0));
+        }
+
+        let store_node = |node: GraphPathSearchNode<G>| {
+            let key = PathKey::build_from_path(&node.path, node.l);
+            let idx = counters
+                .get(&key)
+                .unwrap()
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            container.store(&key, node.path, idx);
+        };
+
+        // Start parallelised BFS
+        self.g
+            .node_identifiers()
+            .map(|start_node| GraphPathSearchNode::init(start_node, self.clone()))
+            .par_bridge()
+            .for_each(|start_search_node| {
+                // Include the start path
+                store_node(start_search_node.clone());
+
+                // Start the search
+                // TODO: Experiment with Dfs vs Bfs
+                FastBfs::<GraphPathSearchNode<G>>::new(start_search_node, None, true)
+                    .into_par_iter()
+                    .for_each(|path_node| {
+                        store_node(path_node.unwrap());
+                    })
+            });
+
+        container
     }
 }
 
@@ -153,6 +206,18 @@ where
                     .collect()
             })
             .collect()
+    }
+
+    pub fn stl<'a>(
+        &'a self,
+        node_pair: (NodeId, NodeId),
+        l: usize,
+    ) -> StlPathContainer<&'a Self, NodeId> {
+        StlPathContainer {
+            parent_container: &self,
+            node_pair,
+            l,
+        }
     }
 }
 
@@ -278,55 +343,136 @@ where
     }
 }
 
-impl<G> PathQuery<G>
+#[derive(Debug)]
+pub struct StlPathContainer<Ref, NodeId>
 where
-    G: IntoEdges + Visitable + IntoNodeIdentifiers + Sync + Send,
-    G::NodeId: SensibleNode + Send + Sync,
-    <G as IntoNodeIdentifiers>::NodeIdentifiers: Send,
+    NodeId: SensibleNode,
+    Ref: Deref<Target = PathContainer<NodeId>>,
 {
-    pub fn run(&self) -> PathContainer<G::NodeId>
-    where
-        G: IntoEdges + Visitable + IntoNodeIdentifiers + Sync + Send,
-        G::NodeId: SensibleNode + Send + Sync,
-        <G as IntoNodeIdentifiers>::NodeIdentifiers: Send,
-    {
-        // Setup container for paths and their indexes
-        let container = PathContainer::new();
+    pub parent_container: Ref,
+    pub node_pair: (NodeId, NodeId),
+    pub l: usize,
+}
 
-        // Setup counters for the number of (s, t, k, l) paths encountered
-        // This allows us to index such paths as we find them
-        let mut counters = HashMap::new();
-        for key in self.key_iterator() {
-            counters.insert(key, AtomicUsize::new(0));
+impl<Ref, NodeId> StlPathContainer<Ref, NodeId>
+where
+    NodeId: SensibleNode,
+    Ref: Deref<Target = PathContainer<NodeId>>,
+{
+    fn key_from_k(&self, k: usize) -> PathKey<NodeId> {
+        PathKey {
+            s: self.node_pair.0,
+            t: self.node_pair.1,
+            k,
+            l: self.l,
+        }
+    }
+
+    pub fn num_paths(&self, k: usize) -> usize {
+        self.parent_container.num_paths(&self.key_from_k(k))
+    }
+
+    pub fn index_of(&self, path: &Path<NodeId>) -> usize {
+        self.parent_container
+            .index_of(&self.key_from_k(path.len() - 1), path)
+    }
+
+    pub fn path_at_index(&self, k: usize, idx: usize) -> Option<Path<NodeId>> {
+        self.parent_container
+            .path_at_index(&self.key_from_k(k), idx)
+    }
+
+    pub fn chain_group_sizes<'a>(&'a self, k_max: usize) -> impl Iterator<Item = usize> + 'a {
+        (0..=k_max).map(|k| self.num_paths(k))
+    }
+
+    // TODO: Add option to anti-transpose?
+    // TODO: Move this out of the path_search module?
+    pub fn homology<C, Algo>(
+        self,
+        d: Arc<DistanceMatrix<NodeId>>,
+        options: Option<Algo::Options>,
+    ) -> StlHomologyRs<Ref, NodeId, C, Algo::Decomposition>
+    where
+        C: Column,
+        Algo: DecompositionAlgo<C>,
+    {
+        // Setup algorithm to receive entries
+
+        let mut algo = Algo::init(options);
+        let sizes: Vec<_> = self.chain_group_sizes(self.l).collect();
+        let empty_cols =
+            (0..=self.l).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
+        algo = algo.add_cols(empty_cols);
+
+        // Compute offsets as cumulative sum of sizes of each dimension
+
+        for k in 0..=self.l {
+            if k == 0 {
+                // k= 0 => no boundary
+                continue;
+            }
+
+            let k_offset: usize = sizes[0..k].iter().sum();
+            let k_minus_1_offset: usize = sizes[0..(k - 1)].iter().sum();
+            let key = self.key_from_k(k);
+
+            let paths_with_key = self.parent_container.paths.get(&key);
+
+            if let Some(paths_with_key) = paths_with_key {
+                for entry in paths_with_key.value() {
+                    // Get path and its index in the chain complex
+                    let path = entry.key();
+                    let idx = entry.value();
+                    for i in 1..(path.len() - 1) {
+                        // For each interior vertex, check if removing changes length
+                        let a = path[i - 1];
+                        let mid = path[i];
+                        let b = path[i + 1];
+
+                        let d1 = d.distance(&a, &mid) + d.distance(&mid, &b);
+                        let d2 = d.distance(&a, &b);
+                        if d1 != d2 {
+                            continue;
+                        }
+
+                        // Length is same so its in the boundary
+                        // Just need to figure out which idx the path is in the chain complex
+
+                        let mut bdry_path = path.clone();
+                        bdry_path.remove(i);
+
+                        let bdry_path_idx = self.index_of(&bdry_path);
+
+                        algo = algo.add_entries(iter::once((
+                            bdry_path_idx + k_minus_1_offset,
+                            idx + k_offset,
+                        )));
+                    }
+                }
+            }
         }
 
-        let store_node = |node: GraphPathSearchNode<G>| {
-            let key = PathKey::build_from_path(&node.path, node.l);
-            let idx = counters
-                .get(&key)
-                .unwrap()
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            container.store(&key, node.path, idx);
-        };
+        // Run the algorithm
+        let decomposition = algo.decompose();
 
-        // Start parallelised BFS
-        self.g
-            .node_identifiers()
-            .map(|start_node| GraphPathSearchNode::init(start_node, self.clone()))
-            .par_bridge()
-            .for_each(|start_search_node| {
-                // Include the start path
-                store_node(start_search_node.clone());
+        StlHomologyRs::new(self, decomposition)
+    }
+}
 
-                // Start the search
-                // TODO: Experiment with Dfs vs Bfs
-                FastBfs::<GraphPathSearchNode<G>>::new(start_search_node, None, true)
-                    .into_par_iter()
-                    .for_each(|path_node| {
-                        store_node(path_node.unwrap());
-                    })
-            });
-
-        container
+impl<NodeId> StlPathContainer<Arc<PathContainer<NodeId>>, NodeId>
+where
+    NodeId: SensibleNode,
+{
+    pub fn new(
+        parent_container: Arc<PathContainer<NodeId>>,
+        node_pair: (NodeId, NodeId),
+        l: usize,
+    ) -> Self {
+        Self {
+            parent_container,
+            node_pair,
+            l,
+        }
     }
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter};
+use std::{collections::HashMap, iter, marker::PhantomData, ops::Deref, sync::Arc};
 
 use lophat::{
     algorithms::{Decomposition, DecompositionAlgo, SerialAlgorithm},
@@ -8,37 +8,34 @@ use petgraph::visit::{GraphRef, IntoNodeIdentifiers};
 
 use rayon::prelude::*;
 
-use crate::path_search::{PathContainer, PathKey, PathQuery, SensibleNode};
+use crate::{
+    distances::DistanceMatrix,
+    path_search::{PathContainer, PathKey, PathQuery, SensibleNode, StlPathContainer},
+    Path,
+};
 
-// TODO: Add options for
-// 1. Anti-transpose
-// 2. Representatives
-
-pub fn chain_group_sizes<NodeId: SensibleNode>(
-    path_container: &PathContainer<NodeId>,
+fn chain_group_sizes<'a, NodeId: SensibleNode>(
+    path_container: &'a PathContainer<NodeId>,
     node_pair: (NodeId, NodeId),
     l: usize,
     k_max: usize,
-) -> Vec<usize> {
+) -> impl Iterator<Item = usize> + 'a {
     let (s, t) = node_pair;
-    (0..=k_max)
-        .map(|k| {
-            let key = PathKey { s, t, k, l };
-            path_container.num_paths(&key)
-        })
-        .collect()
+    (0..=k_max).map(move |k| {
+        let key = PathKey { s, t, k, l };
+        path_container.num_paths(&key)
+    })
 }
 
-pub fn compute_homology<G, C, Algo>(
-    path_container: &PathContainer<G::NodeId>,
-    query: PathQuery<G>,
+pub fn compute_homology<NodeId, C, Algo>(
+    path_container: &PathContainer<NodeId>,
+    d: Arc<DistanceMatrix<NodeId>>,
     l: usize,
-    node_pair: (G::NodeId, G::NodeId),
+    node_pair: (NodeId, NodeId),
     options: Option<Algo::Options>,
 ) -> Algo::Decomposition
 where
-    G: GraphRef,
-    G::NodeId: SensibleNode,
+    NodeId: SensibleNode,
     C: Column,
     Algo: DecompositionAlgo<C>,
 {
@@ -47,14 +44,13 @@ where
     // Setup algorithm to receive entries
 
     let mut algo = Algo::init(options);
-    let sizes = chain_group_sizes(&path_container, node_pair, l, query.l_max);
-    let empty_cols =
-        (0..=query.l_max).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
+    let sizes: Vec<_> = chain_group_sizes(&path_container, node_pair, l, l).collect();
+    let empty_cols = (0..=l).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
     algo = algo.add_cols(empty_cols);
 
     // Compute offsets as cumulative sum of sizes of each dimension
 
-    for k in 0..=query.l_max {
+    for k in 0..=l {
         if k == 0 {
             // k= 0 => no boundary
             continue;
@@ -78,8 +74,8 @@ where
                     let mid = path[i];
                     let b = path[i + 1];
 
-                    let d1 = query.d.distance(&a, &mid) + query.d.distance(&mid, &b);
-                    let d2 = query.d.distance(&a, &b);
+                    let d1 = d.distance(&a, &mid) + d.distance(&mid, &b);
+                    let d2 = d.distance(&a, &b);
                     if d1 != d2 {
                         continue;
                     }
@@ -201,12 +197,12 @@ where
                 .iter()
                 .par_bridge()
                 .map(|node_pair| {
-                    let homology = compute_homology::<G, VecColumn, SerialAlgorithm<VecColumn>>(
-                        path_container,
-                        query.clone(),
-                        l,
-                        node_pair.clone(),
-                        None,
+                    let homology = compute_homology::<
+                        G::NodeId,
+                        VecColumn,
+                        SerialAlgorithm<VecColumn>,
+                    >(
+                        path_container, query.d.clone(), l, node_pair.clone(), None
                     );
                     homology_ranks::<VecColumn, SerialAlgorithm<VecColumn>>(&homology)
                 })
@@ -216,3 +212,83 @@ where
         })
         .collect()
 }
+
+pub struct StlHomologyRs<Ref, NodeId, C, Decomp>
+where
+    NodeId: SensibleNode,
+    Ref: Deref<Target = PathContainer<NodeId>>,
+    C: Column,
+    Decomp: Decomposition<C>,
+{
+    pub stl_paths: StlPathContainer<Ref, NodeId>,
+    pub decomposition: Decomp,
+    pub homology_idxs: HashMap<usize, Vec<usize>>,
+    c: PhantomData<C>,
+}
+
+impl<Ref, NodeId, C, Decomp> StlHomologyRs<Ref, NodeId, C, Decomp>
+where
+    NodeId: SensibleNode,
+    Ref: Deref<Target = PathContainer<NodeId>>,
+    C: Column,
+    Decomp: Decomposition<C>,
+{
+    pub fn new(stl_paths: StlPathContainer<Ref, NodeId>, decomposition: Decomp) -> Self {
+        let homology_idxs = homology_idxs(&decomposition);
+        Self {
+            stl_paths,
+            decomposition,
+            homology_idxs,
+            c: PhantomData,
+        }
+    }
+
+    pub fn ranks(&self) -> HashMap<usize, usize> {
+        self.homology_idxs
+            .iter()
+            .map(|(&dim, idxs)| (dim, idxs.len()))
+            .collect()
+    }
+
+    pub fn representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<NodeId>>>>> {
+        if !self.decomposition.has_v() {
+            return None;
+        }
+
+        let collect_rep = |k, rep_idx| {
+            let dim_offset: usize = self.stl_paths.chain_group_sizes(k - 1).sum();
+
+            self.decomposition
+                // Get the V column
+                .get_v_col(rep_idx)
+                .unwrap()
+                .entries()
+                // Moveeach chain complex index back to (s, t, k, l) indexes
+                // and lookup these paths in the path container
+                .map(move |cc_idx| {
+                    self.stl_paths
+                        .path_at_index(k, cc_idx - dim_offset)
+                        .unwrap()
+                })
+                .into_iter()
+                .collect()
+        };
+
+        Some(
+            self.homology_idxs
+                .iter()
+                .map(|(&k, rep_idxs)| {
+                    (
+                        k,
+                        rep_idxs
+                            .iter()
+                            .map(|&rep_idx| collect_rep(k, rep_idx))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        )
+    }
+}
+
+// TODO: Add direct sum class

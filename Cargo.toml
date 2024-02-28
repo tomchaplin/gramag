@@ -8,7 +8,7 @@ pyo3 = { version = "0.18.0", features = ["extension-module"], optional=true }
 anyhow = "1.0.80"
 dashmap = { version = "5.5.3", features = ["rayon"] }
 itertools = "0.12.1"
-lophat = { version = "0.10.1", features=[] }
+lophat = { version = "0.10.1", default-features = false, features=[] }
 par-dfs = { version = "0.0.7", features = ["rayon"] }
 petgraph = "0.6.4"
 rayon = "1.8.1"
