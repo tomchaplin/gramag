@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::iter;
 
 use tabled::builder::Builder;
@@ -16,8 +17,6 @@ pub fn rank_table(ranks: Vec<Vec<usize>>) -> String {
             .and_then(|l_ranks| l_ranks.get(k).copied())
             .unwrap_or(0)
     };
-
-    // Header
 
     let header = iter::once(format!("k=")).chain((0..(l_max + 1)).map(move |k| format!("{}", k)));
     builder.push_record(header);
@@ -40,4 +39,12 @@ pub fn rank_table(ranks: Vec<Vec<usize>>) -> String {
         .with(theme)
         .modify(Columns::new(1..), Alignment::right())
         .to_string()
+}
+
+pub fn rank_map_to_rank_vec(rank_map: &HashMap<usize, usize>, l_max: usize) -> Vec<usize> {
+    let mut out = vec![0; l_max + 1];
+    for i in 0..=l_max {
+        out[i] += rank_map.get(&i).copied().unwrap_or(0);
+    }
+    out
 }

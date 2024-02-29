@@ -1,16 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
-use lophat::{
-    algorithms::{SerialAlgorithm, SerialDecomposition},
-    columns::VecColumn,
-    options::LoPhatOptions,
-};
+use lophat::{algorithms::SerialDecomposition, columns::VecColumn};
 use petgraph::{graph::NodeIndex, visit::IntoNodeIdentifiers, Directed, Graph};
 use pyo3::prelude::*;
 
 use crate::{
     distances::{parallel_all_pairs_distance, DistanceMatrix},
-    homology::{all_homology_ranks_default, StlHomologyRs},
+    homology::{all_homology_ranks_default, StlHomology},
     path_search::{PathContainer, PathQuery, StlPathContainer},
     utils::rank_table,
     Path,
@@ -20,6 +16,7 @@ type PyDigraph = Graph<(), (), Directed, u32>;
 
 // TODO:
 // 1. Add API to list found paths
+// 2. Cache homology
 
 #[pyclass]
 struct MagGraph {
@@ -98,7 +95,7 @@ impl MagGraph {
         all_homology_ranks_default(&self.path_container, self.build_query(self.l_max.unwrap()))
     }
 
-    // TODO: Add flag for representatives
+    // TODO: Return an error instead
     fn stl_homology(
         &self,
         node_pair: (u32, u32),
@@ -106,15 +103,9 @@ impl MagGraph {
         representatives: Option<bool>,
     ) -> Option<PyStlHomology> {
         let (s, t) = node_pair;
-        let l_max = self.l_max?;
-        if l_max < l {
+        if self.l_max? < l {
             return None;
         }
-
-        let representatives = representatives.unwrap_or(false);
-
-        let mut options = LoPhatOptions::default();
-        options.maintain_v = representatives;
 
         let stl_paths = StlPathContainer::new(
             self.path_container.clone(),
@@ -122,9 +113,9 @@ impl MagGraph {
             l,
         );
 
-        let homology = stl_paths.homology::<VecColumn, SerialAlgorithm<VecColumn>>(
+        let homology = stl_paths.serial_homology(
             self.distance_matrix.clone(),
-            Some(options),
+            representatives.unwrap_or(false),
         );
 
         Some(PyStlHomology(homology))
@@ -133,7 +124,7 @@ impl MagGraph {
 
 #[pyclass]
 struct PyStlHomology(
-    StlHomologyRs<
+    StlHomology<
         Arc<PathContainer<NodeIndex<u32>>>,
         NodeIndex<u32>,
         VecColumn,
@@ -153,22 +144,19 @@ impl PyStlHomology {
     #[getter]
     fn get_representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<u32>>>>> {
         let reps = self.0.representatives()?;
+
+        let convert_path_to_u32 =
+            |path: Path<NodeIndex<u32>>| path.into_iter().map(|node| node.index() as u32).collect();
+
+        let convert_all_reps = |reps: Vec<Vec<Path<NodeIndex<u32>>>>| {
+            reps.into_iter()
+                .map(|rep| rep.into_iter().map(convert_path_to_u32).collect())
+                .collect()
+        };
+
         Some(
             reps.into_iter()
-                .map(|(dim, reps)| {
-                    (
-                        dim,
-                        reps.into_iter()
-                            .map(|rep| {
-                                rep.into_iter()
-                                    .map(|path| {
-                                        path.into_iter().map(|node| node.index() as u32).collect()
-                                    })
-                                    .collect()
-                            })
-                            .collect(),
-                    )
-                })
+                .map(|(dim, reps)| (dim, convert_all_reps(reps)))
                 .collect(),
         )
     }
@@ -191,5 +179,6 @@ fn format_table(table: Vec<Vec<usize>>) -> PyResult<String> {
 fn gramag(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(format_table, m)?)?;
     m.add_class::<MagGraph>()?;
+    m.add_class::<PyStlHomology>()?;
     Ok(())
 }

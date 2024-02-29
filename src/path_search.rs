@@ -1,5 +1,5 @@
 use crate::distances::{Distance, DistanceMatrix};
-use crate::homology::StlHomologyRs;
+use crate::homology::StlHomology;
 use crate::Path;
 
 use core::hash::Hash;
@@ -9,8 +9,9 @@ use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug};
 
 use dashmap::DashMap;
-use lophat::algorithms::DecompositionAlgo;
-use lophat::columns::Column;
+use lophat::algorithms::{DecompositionAlgo, SerialAlgorithm, SerialDecomposition};
+use lophat::columns::{Column, VecColumn};
+use lophat::options::LoPhatOptions;
 use par_dfs::sync::par::IntoParallelIterator;
 use par_dfs::sync::{FastBfs, FastNode};
 use petgraph::visit::{GraphBase, GraphRef, IntoEdges, IntoNodeIdentifiers, Visitable};
@@ -198,9 +199,9 @@ where
         node_identifiers: impl Fn() -> I + Copy,
         l_max: usize,
     ) -> Vec<Vec<usize>> {
-        (0..(l_max + 1))
+        (0..=l_max)
             .map(|l| {
-                (0..(l_max + 1))
+                (0..=l_max)
                     .map(|k| self.aggregated_rank(node_identifiers, k, l))
                     .collect()
             })
@@ -381,13 +382,24 @@ where
         (0..=k_max).map(|k| self.num_paths(k))
     }
 
+    pub fn serial_homology(
+        self,
+        d: Arc<DistanceMatrix<NodeId>>,
+        representatives: bool,
+    ) -> StlHomology<Ref, NodeId, VecColumn, SerialDecomposition<VecColumn>> {
+        let mut options = LoPhatOptions::default();
+        options.maintain_v = representatives;
+
+        self.homology::<VecColumn, SerialAlgorithm<VecColumn>>(d, Some(options))
+    }
+
     // TODO: Add option to anti-transpose?
     // TODO: Move this out of the path_search module?
     pub fn homology<C, Algo>(
         self,
         d: Arc<DistanceMatrix<NodeId>>,
         options: Option<Algo::Options>,
-    ) -> StlHomologyRs<Ref, NodeId, C, Algo::Decomposition>
+    ) -> StlHomology<Ref, NodeId, C, Algo::Decomposition>
     where
         C: Column,
         Algo: DecompositionAlgo<C>,
@@ -402,8 +414,8 @@ where
 
         // Loop through each homological dimension (k)
         for k in 0..=self.l {
+            // k= 0 => no boundary
             if k == 0 {
-                // k= 0 => no boundary
                 continue;
             }
 
@@ -411,10 +423,7 @@ where
             let k_offset: usize = sizes[0..k].iter().sum();
             let k_minus_1_offset: usize = sizes[0..(k - 1)].iter().sum();
             let k_paths = self.parent_container.paths.get(&self.key_from_k(k));
-
-            let Some(k_paths) = k_paths else {
-                continue;
-            };
+            let Some(k_paths) = k_paths else { continue };
 
             // Loop through all k-paths
             for entry in k_paths.value() {
@@ -448,7 +457,7 @@ where
         // Run the algorithm
         let decomposition = algo.decompose();
 
-        StlHomologyRs::new(self, decomposition)
+        StlHomology::new(self, decomposition)
     }
 }
 
