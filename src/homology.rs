@@ -2,6 +2,7 @@ use std::{collections::HashMap, marker::PhantomData, ops::Deref};
 
 use lophat::{algorithms::Decomposition, columns::Column};
 use petgraph::visit::{GraphRef, IntoNodeIdentifiers};
+use rustc_hash::FxHashMap;
 
 use rayon::prelude::*;
 
@@ -14,12 +15,12 @@ use crate::{
 // Returns a map indexed by dimension k
 // map[k] is a list of column-indices wherein non-dead homology is created
 
-pub fn homology_idxs<C, Algo>(decomposition: &Algo) -> HashMap<usize, Vec<usize>>
+pub fn homology_idxs<C, Algo>(decomposition: &Algo) -> FxHashMap<usize, Vec<usize>>
 where
     C: Column,
     Algo: Decomposition<C>,
 {
-    let mut map: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut map: FxHashMap<usize, Vec<usize>> = FxHashMap::default();
     let diagram = decomposition.diagram();
     for idx in diagram.unpaired {
         let dim = decomposition.get_r_col(idx).dimension();
@@ -68,7 +69,7 @@ where
 {
     pub stl_paths: StlPathContainer<Ref, NodeId>,
     pub decomposition: Decomp,
-    pub homology_idxs: HashMap<usize, Vec<usize>>,
+    pub homology_idxs: FxHashMap<usize, Vec<usize>>,
     c: PhantomData<C>,
 }
 
@@ -147,7 +148,7 @@ where
     C: Column,
     Decomp: Decomposition<C>,
 {
-    summands: HashMap<StlKey<NodeId>, StlHomology<Ref, NodeId, C, Decomp>>,
+    summands: FxHashMap<StlKey<NodeId>, StlHomology<Ref, NodeId, C, Decomp>>,
 }
 
 impl<Ref, NodeId, C, Decomp> DirectSum<Ref, NodeId, C, Decomp>

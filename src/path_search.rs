@@ -3,10 +3,11 @@ use crate::homology::StlHomology;
 use crate::Path;
 
 use core::hash::Hash;
+use rustc_hash::FxHashMap;
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use std::{collections::HashMap, fmt::Debug};
 
 use dashmap::DashMap;
 use lophat::algorithms::{DecompositionAlgo, SerialAlgorithm, SerialDecomposition};
@@ -94,7 +95,7 @@ where
 
         // Setup counters for the number of (s, t, k, l) paths encountered
         // This allows us to index such paths as we find them
-        let mut counters = HashMap::new();
+        let mut counters = FxHashMap::default();
         for key in self.key_iterator() {
             counters.insert(key, AtomicUsize::new(0));
         }

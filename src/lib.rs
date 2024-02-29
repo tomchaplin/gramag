@@ -7,8 +7,7 @@ pub mod utils;
 // 1. Test
 // 2. Document
 // 3. Benchmark
-// 4. Switch to fxhash
-// 5. Direct sum class + bindings
+// 4. Direct sum class + bindings
 
 pub type Path<NodeId> = Vec<NodeId>;
 

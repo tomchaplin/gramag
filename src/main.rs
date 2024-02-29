@@ -37,12 +37,9 @@ fn main() {
         rank_table(all_homology_ranks_default(&container, path_query.clone()))
     );
 
-    let mut options = LoPhatOptions::default();
-    options.maintain_v = true;
-    let homology = container
-        .stl((NodeIndex::from(0), NodeIndex::from(5)), 2)
-        .homology::<VecColumn, SerialAlgorithm<VecColumn>>(distance_matrix.clone(), Some(options));
-
-    let reps = homology.representatives();
+    let reps = container
+        .stl((NodeIndex::from(0), NodeIndex::from(5)), 3)
+        .serial_homology(distance_matrix.clone(), true)
+        .representatives();
     println!("{:#?}", reps);
 }

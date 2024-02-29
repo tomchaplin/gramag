@@ -13,6 +13,7 @@ par-dfs = { version = "0.0.7", features = ["rayon"] }
 petgraph = "0.6.4"
 rayon = "1.8.1"
 tabled = "0.15.0"
+rustc-hash = "1.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
