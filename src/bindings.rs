@@ -1,12 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
+use rayon::prelude::*;
+
 use lophat::{algorithms::SerialDecomposition, columns::VecColumn};
 use petgraph::{graph::NodeIndex, visit::IntoNodeIdentifiers, Directed, Graph};
 use pyo3::prelude::*;
 
 use crate::{
     distances::{parallel_all_pairs_distance, DistanceMatrix},
-    homology::{all_homology_ranks_default, StlHomology},
+    homology::{all_homology_ranks_default, DirectSum, StlHomology},
     path_search::{PathContainer, PathQuery, StlPathContainer},
     utils::rank_table,
     Path,
@@ -16,7 +18,7 @@ type PyDigraph = Graph<(), (), Directed, u32>;
 
 // TODO:
 // 1. Add API to list found paths
-// 2. Cache homology
+// 2. Cache homology in the MagGraph?
 
 #[pyclass]
 struct MagGraph {
@@ -120,6 +122,30 @@ impl MagGraph {
 
         Some(PyStlHomology(homology))
     }
+
+    // TODO: New method - allow arbitrary (s, t) list
+    fn l_homology(&self, l: usize, representatives: Option<bool>) -> Option<PyDirectSum> {
+        if self.l_max? < l {
+            return None;
+        }
+
+        let compute_stl_homology = |node_pair, l| {
+            let stl_paths = StlPathContainer::new(self.path_container.clone(), node_pair, l);
+            stl_paths.serial_homology(
+                self.distance_matrix.clone(),
+                representatives.unwrap_or(false),
+            )
+        };
+
+        let stl_homologies: Vec<_> = self
+            .digraph
+            .node_identifiers()
+            .flat_map(|s| self.digraph.node_identifiers().map(move |t| (s, t)))
+            .par_bridge()
+            .map(|node_pair| ((node_pair, l), compute_stl_homology(node_pair, l)))
+            .collect();
+        Some(PyDirectSum(DirectSum::new(stl_homologies.into_iter())))
+    }
 }
 
 #[pyclass]
@@ -132,6 +158,23 @@ struct PyStlHomology(
     >,
 );
 
+// This is awful and I hate it
+fn convert_representatives(
+    reps: HashMap<usize, Vec<Vec<Path<NodeIndex<u32>>>>>,
+) -> HashMap<usize, Vec<Vec<Path<u32>>>> {
+    let convert_path_to_u32 =
+        |path: Path<NodeIndex<u32>>| path.into_iter().map(|node| node.index() as u32).collect();
+
+    let convert_all_reps = |reps: Vec<Vec<Path<NodeIndex<u32>>>>| {
+        reps.into_iter()
+            .map(|rep| rep.into_iter().map(convert_path_to_u32).collect())
+            .collect()
+    };
+    reps.into_iter()
+        .map(|(dim, reps)| (dim, convert_all_reps(reps)))
+        .collect()
+}
+
 #[pymethods]
 impl PyStlHomology {
     #[getter]
@@ -139,26 +182,32 @@ impl PyStlHomology {
         self.0.ranks()
     }
 
-    // This might be quite slow because idx -> Path is slow in HashMap
-    // This is awful and I hate it
     #[getter]
     fn get_representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<u32>>>>> {
-        let reps = self.0.representatives()?;
+        Some(convert_representatives(self.0.representatives()?))
+    }
+}
 
-        let convert_path_to_u32 =
-            |path: Path<NodeIndex<u32>>| path.into_iter().map(|node| node.index() as u32).collect();
+#[pyclass]
+struct PyDirectSum(
+    DirectSum<
+        Arc<PathContainer<NodeIndex<u32>>>,
+        NodeIndex<u32>,
+        VecColumn,
+        SerialDecomposition<VecColumn>,
+    >,
+);
 
-        let convert_all_reps = |reps: Vec<Vec<Path<NodeIndex<u32>>>>| {
-            reps.into_iter()
-                .map(|rep| rep.into_iter().map(convert_path_to_u32).collect())
-                .collect()
-        };
+#[pymethods]
+impl PyDirectSum {
+    #[getter]
+    fn get_ranks(&self) -> HashMap<usize, usize> {
+        self.0.ranks()
+    }
 
-        Some(
-            reps.into_iter()
-                .map(|(dim, reps)| (dim, convert_all_reps(reps)))
-                .collect(),
-        )
+    #[getter]
+    fn get_representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<u32>>>>> {
+        Some(convert_representatives(self.0.representatives()?))
     }
 }
 

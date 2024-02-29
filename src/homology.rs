@@ -97,6 +97,7 @@ where
             .collect()
     }
 
+    // This might be quite slow because path_at_index can be slow if there are lots of paths with the same key
     pub fn representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<NodeId>>>>> {
         if !self.decomposition.has_v() {
             return None;
@@ -140,7 +141,7 @@ where
 
 type StlKey<NodeId> = ((NodeId, NodeId), usize);
 
-// TODO: Add direct sum class
+// TODO: Allow direct sum to just hold a reference? Maybe enfore Arc?
 pub struct DirectSum<Ref, NodeId, C, Decomp>
 where
     NodeId: SensibleNode,

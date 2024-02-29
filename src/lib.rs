@@ -8,6 +8,7 @@ pub mod utils;
 // 2. Document
 // 3. Benchmark
 // 4. Direct sum class + bindings
+// 5. Add an Arc<DistanceMatrix> to PathContainer to avoid copying around?
 
 pub type Path<NodeId> = Vec<NodeId>;
 

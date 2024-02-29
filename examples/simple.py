@@ -39,3 +39,8 @@ for s in range(6):
             print(hom.ranks)
             print(hom.representatives)
             print("")
+
+
+l2_hom = mh.l_homology(2, representatives=True)
+print(l2_hom.ranks)
+print(l2_hom.representatives)
