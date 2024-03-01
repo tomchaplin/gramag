@@ -38,7 +38,7 @@ fn main() {
 
     let reps = container
         .stl((NodeIndex::from(0), NodeIndex::from(5)), 3)
-        .serial_homology(distance_matrix.clone(), true)
+        .serial_homology(true)
         .representatives();
     println!("{:#?}", reps);
 }

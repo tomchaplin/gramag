@@ -1,6 +1,9 @@
-use std::{collections::HashMap, marker::PhantomData, ops::Deref};
+use std::{collections::HashMap, marker::PhantomData, ops::Deref, sync::Arc};
 
-use lophat::{algorithms::Decomposition, columns::Column};
+use lophat::{
+    algorithms::{Decomposition, DecompositionAlgo},
+    columns::Column,
+};
 use petgraph::visit::{GraphRef, IntoNodeIdentifiers};
 use rustc_hash::FxHashMap;
 
@@ -48,9 +51,9 @@ where
                 .map(|node_pair| {
                     let homology = path_container
                         .stl(node_pair.clone(), l)
-                        .serial_homology(query.d.clone(), false);
+                        .serial_homology(false);
 
-                    ((node_pair.clone(), l), homology)
+                    ((node_pair.clone(), l), Arc::new(homology))
                 })
                 .collect();
 
@@ -71,6 +74,80 @@ where
     pub decomposition: Decomp,
     pub homology_idxs: FxHashMap<usize, Vec<usize>>,
     c: PhantomData<C>,
+}
+
+// TODO: Add option to anti-transpose?
+// TODO: Any way to associate this as a method of StlHomology?
+pub fn build_stl_homology<Ref, NodeId, C, Algo>(
+    stl_paths: StlPathContainer<Ref, NodeId>,
+    options: Option<Algo::Options>,
+) -> StlHomology<Ref, NodeId, C, Algo::Decomposition>
+where
+    NodeId: SensibleNode,
+    Ref: Deref<Target = PathContainer<NodeId>>,
+    C: Column,
+    Algo: DecompositionAlgo<C>,
+{
+    // Setup algorithm to receive entries
+
+    let mut algo = Algo::init(options);
+    let sizes: Vec<_> = stl_paths.chain_group_sizes(stl_paths.l).collect();
+    let empty_cols =
+        (0..=stl_paths.l).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
+    algo = algo.add_cols(empty_cols);
+
+    // Loop through each homological dimension (k)
+    for k in 0..=stl_paths.l {
+        // k= 0 => no boundary
+        if k == 0 {
+            continue;
+        }
+
+        // Setup offsets for k-paths and (k-1)-paths
+        let k_offset: usize = sizes[0..k].iter().sum();
+        let k_minus_1_offset: usize = sizes[0..(k - 1)].iter().sum();
+        let k_paths = stl_paths
+            .parent_container
+            .paths
+            .get(&stl_paths.key_from_k(k));
+        let Some(k_paths) = k_paths else { continue };
+
+        // Loop through all k-paths
+        for entry in k_paths.value() {
+            // Get path and its index in the chain complex
+            let path = entry.key();
+            let idx = entry.value();
+
+            // Only test removing interior vertices
+            let entries = (1..k)
+                .filter(|&i| {
+                    // Path without vertex i appears in boundary
+                    // iff removing doesn't change length
+                    let a = path[i - 1];
+                    let mid = path[i];
+                    let b = path[i + 1];
+                    let d = &stl_paths.parent_container.d;
+                    d.distance(&a, &mid) + d.distance(&mid, &b) == d.distance(&a, &b)
+                })
+                .map(|i| {
+                    // Get index of path with i^th vertex removed
+                    let mut bdry_path = path.clone();
+                    bdry_path.remove(i);
+                    // Could be slow
+                    let bdry_path_idx = stl_paths
+                        .index_of(&bdry_path)
+                        .expect("Should have found this boundary and inserted with correct key");
+                    // Add entry to boundary matrix, using appropriate offsets
+                    (bdry_path_idx + k_minus_1_offset, idx + k_offset)
+                });
+            algo = algo.add_entries(entries);
+        }
+    }
+
+    // Run the algorithm
+    let decomposition = algo.decompose();
+
+    StlHomology::new(stl_paths, decomposition)
 }
 
 impl<Ref, NodeId, C, Decomp> StlHomology<Ref, NodeId, C, Decomp>
@@ -104,7 +181,11 @@ where
         }
 
         let collect_rep = |k, rep_idx| {
-            let dim_offset: usize = self.stl_paths.chain_group_sizes(k - 1).sum();
+            let dim_offset: usize = if k == 0 {
+                0
+            } else {
+                self.stl_paths.chain_group_sizes(k - 1).sum()
+            };
 
             self.decomposition
                 // Get the V column
@@ -149,7 +230,7 @@ where
     C: Column,
     Decomp: Decomposition<C>,
 {
-    summands: FxHashMap<StlKey<NodeId>, StlHomology<Ref, NodeId, C, Decomp>>,
+    summands: FxHashMap<StlKey<NodeId>, Arc<StlHomology<Ref, NodeId, C, Decomp>>>,
 }
 
 impl<Ref, NodeId, C, Decomp> DirectSum<Ref, NodeId, C, Decomp>
@@ -161,7 +242,7 @@ where
 {
     // TODO: Allow Parallel Iterator
     pub fn new(
-        summands: impl Iterator<Item = (StlKey<NodeId>, StlHomology<Ref, NodeId, C, Decomp>)>,
+        summands: impl Iterator<Item = (StlKey<NodeId>, Arc<StlHomology<Ref, NodeId, C, Decomp>>)>,
     ) -> Self {
         Self {
             summands: summands.collect(),
@@ -191,14 +272,14 @@ where
     }
 
     pub fn get(&self, key: &StlKey<NodeId>) -> Option<&StlHomology<Ref, NodeId, C, Decomp>> {
-        self.summands.get(key)
+        self.summands.get(key).map(|arc_hom| arc_hom.deref())
     }
 
     pub fn add(
         &mut self,
         key: StlKey<NodeId>,
-        hom: StlHomology<Ref, NodeId, C, Decomp>,
-    ) -> Option<StlHomology<Ref, NodeId, C, Decomp>> {
+        hom: Arc<StlHomology<Ref, NodeId, C, Decomp>>,
+    ) -> Option<Arc<StlHomology<Ref, NodeId, C, Decomp>>> {
         self.summands.insert(key, hom)
     }
 }

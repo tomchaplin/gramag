@@ -32,7 +32,7 @@ for s in range(6):
             # Gets Magnitude homology for fixed (s, t), l (and all k<=l)
             # Will return None if l > l_max
             # Final boolean parameter determines whether representatives should be computed
-            hom = mh.stl_homology((s, t), l, True)
+            hom = mh.stl_homology((s, t), l, representatives=True)
             if len(hom.ranks) == 0:
                 continue
             print(((s, t), l))

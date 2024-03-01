@@ -32,6 +32,21 @@ impl MagGraph {
     fn build_query<'a>(&'a self, l_max: usize) -> PathQuery<&PyDigraph> {
         PathQuery::build(&self.digraph, self.distance_matrix.clone(), l_max)
     }
+
+    fn inner_compute_stl_homology(
+        &self,
+        node_pair: (NodeIndex<u32>, NodeIndex<u32>),
+        l: usize,
+        representatives: bool,
+    ) -> StlHomology<
+        Arc<PathContainer<NodeIndex>>,
+        NodeIndex,
+        VecColumn,
+        SerialDecomposition<VecColumn>,
+    > {
+        StlPathContainer::new(self.path_container.clone(), node_pair, l)
+            .serial_homology(representatives)
+    }
 }
 
 #[pymethods]
@@ -41,7 +56,7 @@ impl MagGraph {
         let digraph = Graph::<(), ()>::from_edges(edges.iter());
         let distance_matrix = parallel_all_pairs_distance(&digraph);
         let distance_matrix = Arc::new(distance_matrix);
-        let path_container = Arc::new(PathContainer::new());
+        let path_container = Arc::new(PathContainer::new(distance_matrix.clone()));
 
         MagGraph {
             digraph,
@@ -109,18 +124,13 @@ impl MagGraph {
             return None;
         }
 
-        let stl_paths = StlPathContainer::new(
-            self.path_container.clone(),
+        let homology = self.inner_compute_stl_homology(
             (NodeIndex::from(s), NodeIndex::from(t)),
             l,
-        );
-
-        let homology = stl_paths.serial_homology(
-            self.distance_matrix.clone(),
             representatives.unwrap_or(false),
         );
 
-        Some(PyStlHomology(homology))
+        Some(PyStlHomology(Arc::new(homology)))
     }
 
     // TODO: New method - allow arbitrary (s, t) list
@@ -128,21 +138,18 @@ impl MagGraph {
         if self.l_max? < l {
             return None;
         }
-
-        let compute_stl_homology = |node_pair, l| {
-            let stl_paths = StlPathContainer::new(self.path_container.clone(), node_pair, l);
-            stl_paths.serial_homology(
-                self.distance_matrix.clone(),
-                representatives.unwrap_or(false),
-            )
-        };
-
+        let representatives = representatives.unwrap_or(false);
         let stl_homologies: Vec<_> = self
             .digraph
             .node_identifiers()
             .flat_map(|s| self.digraph.node_identifiers().map(move |t| (s, t)))
             .par_bridge()
-            .map(|node_pair| ((node_pair, l), compute_stl_homology(node_pair, l)))
+            .map(|node_pair| {
+                (
+                    (node_pair, l),
+                    Arc::new(self.inner_compute_stl_homology(node_pair, l, representatives)),
+                )
+            })
             .collect();
         Some(PyDirectSum(DirectSum::new(stl_homologies.into_iter())))
     }
@@ -150,11 +157,13 @@ impl MagGraph {
 
 #[pyclass]
 struct PyStlHomology(
-    StlHomology<
-        Arc<PathContainer<NodeIndex<u32>>>,
-        NodeIndex<u32>,
-        VecColumn,
-        SerialDecomposition<VecColumn>,
+    Arc<
+        StlHomology<
+            Arc<PathContainer<NodeIndex<u32>>>,
+            NodeIndex<u32>,
+            VecColumn,
+            SerialDecomposition<VecColumn>,
+        >,
     >,
 );
 
@@ -213,9 +222,7 @@ impl PyDirectSum {
 
 // TODO:
 // 1. add_summand
-// 2. total_rank
-// 3. all_representatives
-// 4. Init from a vector of Py<StlHomology>
+// 2. Init from a vector of Py<StlHomology>
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -228,6 +235,5 @@ fn format_table(table: Vec<Vec<usize>>) -> PyResult<String> {
 fn gramag(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(format_table, m)?)?;
     m.add_class::<MagGraph>()?;
-    m.add_class::<PyStlHomology>()?;
     Ok(())
 }

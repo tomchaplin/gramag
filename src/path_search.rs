@@ -1,5 +1,5 @@
 use crate::distances::{Distance, DistanceMatrix};
-use crate::homology::StlHomology;
+use crate::homology::{build_stl_homology, StlHomology};
 use crate::Path;
 
 use core::hash::Hash;
@@ -91,7 +91,7 @@ where
 {
     pub fn run(&self) -> PathContainer<G::NodeId> {
         // Setup container for paths and their indexes
-        let container = PathContainer::new();
+        let container = PathContainer::new(self.d.clone());
 
         // Setup counters for the number of (s, t, k, l) paths encountered
         // This allows us to index such paths as we find them
@@ -137,15 +137,17 @@ where
     NodeId: SensibleNode,
 {
     pub paths: DashMap<PathKey<NodeId>, DashMap<Path<NodeId>, usize>>,
+    pub d: Arc<DistanceMatrix<NodeId>>,
 }
 
 impl<NodeId> PathContainer<NodeId>
 where
     NodeId: SensibleNode,
 {
-    pub fn new() -> Self {
+    pub fn new(d: Arc<DistanceMatrix<NodeId>>) -> Self {
         Self {
             paths: DashMap::new(),
+            d,
         }
     }
     fn store(&self, key: &PathKey<NodeId>, path: Path<NodeId>, idx: usize) {
@@ -164,14 +166,8 @@ where
         }
     }
 
-    pub fn index_of(&self, key: &PathKey<NodeId>, path: &Path<NodeId>) -> usize {
-        self.paths
-            .get(key)
-            .unwrap()
-            .get(path)
-            .unwrap()
-            .value()
-            .clone()
+    pub fn index_of(&self, key: &PathKey<NodeId>, path: &Path<NodeId>) -> Option<usize> {
+        Some(*self.paths.get(key)?.get(path)?.value())
     }
 
     pub fn path_at_index(&self, key: &PathKey<NodeId>, idx: usize) -> Option<Path<NodeId>> {
@@ -356,7 +352,7 @@ where
     NodeId: SensibleNode,
     Ref: Deref<Target = PathContainer<NodeId>>,
 {
-    fn key_from_k(&self, k: usize) -> PathKey<NodeId> {
+    pub fn key_from_k(&self, k: usize) -> PathKey<NodeId> {
         PathKey {
             s: self.node_pair.0,
             t: self.node_pair.1,
@@ -369,7 +365,7 @@ where
         self.parent_container.num_paths(&self.key_from_k(k))
     }
 
-    pub fn index_of(&self, path: &Path<NodeId>) -> usize {
+    pub fn index_of(&self, path: &Path<NodeId>) -> Option<usize> {
         self.parent_container
             .index_of(&self.key_from_k(path.len() - 1), path)
     }
@@ -385,80 +381,23 @@ where
 
     pub fn serial_homology(
         self,
-        d: Arc<DistanceMatrix<NodeId>>,
         representatives: bool,
     ) -> StlHomology<Ref, NodeId, VecColumn, SerialDecomposition<VecColumn>> {
         let mut options = LoPhatOptions::default();
         options.maintain_v = representatives;
 
-        self.homology::<VecColumn, SerialAlgorithm<VecColumn>>(d, Some(options))
+        self.homology::<VecColumn, SerialAlgorithm<VecColumn>>(Some(options))
     }
 
-    // TODO: Add option to anti-transpose?
-    // TODO: Move this out of the path_search module?
     pub fn homology<C, Algo>(
         self,
-        d: Arc<DistanceMatrix<NodeId>>,
         options: Option<Algo::Options>,
     ) -> StlHomology<Ref, NodeId, C, Algo::Decomposition>
     where
         C: Column,
         Algo: DecompositionAlgo<C>,
     {
-        // Setup algorithm to receive entries
-
-        let mut algo = Algo::init(options);
-        let sizes: Vec<_> = self.chain_group_sizes(self.l).collect();
-        let empty_cols =
-            (0..=self.l).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
-        algo = algo.add_cols(empty_cols);
-
-        // Loop through each homological dimension (k)
-        for k in 0..=self.l {
-            // k= 0 => no boundary
-            if k == 0 {
-                continue;
-            }
-
-            // Setup offsets for k-paths and (k-1)-paths
-            let k_offset: usize = sizes[0..k].iter().sum();
-            let k_minus_1_offset: usize = sizes[0..(k - 1)].iter().sum();
-            let k_paths = self.parent_container.paths.get(&self.key_from_k(k));
-            let Some(k_paths) = k_paths else { continue };
-
-            // Loop through all k-paths
-            for entry in k_paths.value() {
-                // Get path and its index in the chain complex
-                let path = entry.key();
-                let idx = entry.value();
-
-                // Only test removing interior vertices
-                let entries = (1..k)
-                    .filter(|&i| {
-                        // Path without vertex i appears in boundary
-                        // iff removing doesn't change length
-                        let a = path[i - 1];
-                        let mid = path[i];
-                        let b = path[i + 1];
-                        d.distance(&a, &mid) + d.distance(&mid, &b) == d.distance(&a, &b)
-                    })
-                    .map(|i| {
-                        // Get index of path with i^th vertex removed
-                        let mut bdry_path = path.clone();
-                        bdry_path.remove(i);
-                        // Could be slow
-                        let bdry_path_idx = self.index_of(&bdry_path);
-                        // Add entry to boundary matrix, using appropriate offsets
-                        (bdry_path_idx + k_minus_1_offset, idx + k_offset)
-                    });
-                algo = algo.add_entries(entries);
-            }
-        }
-
-        // Run the algorithm
-        let decomposition = algo.decompose();
-
-        StlHomology::new(self, decomposition)
+        build_stl_homology::<Ref, NodeId, C, Algo>(self, options)
     }
 }
 
