@@ -49,12 +49,10 @@ impl MagGraph {
     }
 
     fn check_l(&self, l: usize) -> Result<(), MagError> {
-        let err = || MagError::InsufficientLMax(l, self.l_max);
-        if self.l_max.ok_or_else(err)? < l {
-            Err(err())
-        } else {
-            Ok(())
-        }
+        self.l_max
+            .filter(|&l_max| l_max >= l)
+            .ok_or(MagError::InsufficientLMax(l, self.l_max))
+            .map(|_| ())
     }
 }
 
