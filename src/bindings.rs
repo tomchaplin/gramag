@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, iter, sync::Arc};
 
 use rayon::prelude::*;
 
@@ -11,7 +11,7 @@ use crate::{
     homology::{all_homology_ranks_default, DirectSum, StlHomology},
     path_search::{PathContainer, PathQuery, StlPathContainer},
     utils::rank_table,
-    Path,
+    MagError, Path, Representative,
 };
 
 type PyDigraph = Graph<(), (), Directed, u32>;
@@ -29,7 +29,7 @@ struct MagGraph {
 }
 
 impl MagGraph {
-    fn build_query<'a>(&'a self, l_max: usize) -> PathQuery<&PyDigraph> {
+    fn build_query(&self, l_max: usize) -> PathQuery<&PyDigraph> {
         PathQuery::build(&self.digraph, self.distance_matrix.clone(), l_max)
     }
 
@@ -46,6 +46,18 @@ impl MagGraph {
     > {
         StlPathContainer::new(self.path_container.clone(), node_pair, l)
             .serial_homology(representatives)
+    }
+
+    fn check_l(&self, l: usize) -> Result<(), MagError> {
+        if self
+            .l_max
+            .ok_or(MagError::InsufficientLMax(l, self.l_max))?
+            < l
+        {
+            Err(MagError::InsufficientLMax(l, self.l_max))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -80,9 +92,9 @@ impl MagGraph {
     }
 
     fn rank_generators(&self, node_pairs: Option<Vec<(u32, u32)>>) -> Vec<Vec<usize>> {
-        if self.l_max.is_none() {
+        let Some(l_max) = self.l_max else {
             return vec![];
-        }
+        };
 
         if let Some(node_pairs) = node_pairs {
             self.path_container.rank_matrix(
@@ -91,7 +103,7 @@ impl MagGraph {
                         .iter()
                         .map(|(s, t)| (NodeIndex::from(*s), NodeIndex::from(*t)))
                 },
-                self.l_max.unwrap(),
+                l_max,
             )
         } else {
             self.path_container.rank_matrix(
@@ -100,29 +112,26 @@ impl MagGraph {
                         .node_identifiers()
                         .flat_map(|s| self.digraph.node_identifiers().map(move |t| (s, t)))
                 },
-                self.l_max.unwrap(),
+                l_max,
             )
         }
     }
 
     fn rank_homology(&self) -> Vec<Vec<usize>> {
-        if self.l_max.is_none() {
+        let Some(l_max) = self.l_max else {
             return vec![];
-        }
-        all_homology_ranks_default(&self.path_container, self.build_query(self.l_max.unwrap()))
+        };
+        all_homology_ranks_default(&self.path_container, self.build_query(l_max))
     }
 
-    // TODO: Return an error instead
     fn stl_homology(
         &self,
         node_pair: (u32, u32),
         l: usize,
         representatives: Option<bool>,
-    ) -> Option<PyStlHomology> {
+    ) -> Result<PyStlHomology, MagError> {
         let (s, t) = node_pair;
-        if self.l_max? < l {
-            return None;
-        }
+        self.check_l(l)?;
 
         let homology = self.inner_compute_stl_homology(
             (NodeIndex::from(s), NodeIndex::from(t)),
@@ -130,14 +139,12 @@ impl MagGraph {
             representatives.unwrap_or(false),
         );
 
-        Some(PyStlHomology(Arc::new(homology)))
+        Ok(PyStlHomology(Arc::new(homology)))
     }
 
     // TODO: New method - allow arbitrary (s, t) list
-    fn l_homology(&self, l: usize, representatives: Option<bool>) -> Option<PyDirectSum> {
-        if self.l_max? < l {
-            return None;
-        }
+    fn l_homology(&self, l: usize, representatives: Option<bool>) -> Result<PyDirectSum, MagError> {
+        self.check_l(l)?;
         let representatives = representatives.unwrap_or(false);
         let stl_homologies: Vec<_> = self
             .digraph
@@ -151,11 +158,11 @@ impl MagGraph {
                 )
             })
             .collect();
-        Some(PyDirectSum(DirectSum::new(stl_homologies.into_iter())))
+        Ok(PyDirectSum(DirectSum::new(stl_homologies.into_iter())))
     }
 }
 
-#[pyclass]
+#[pyclass(name = "StlHomology")]
 struct PyStlHomology(
     Arc<
         StlHomology<
@@ -192,12 +199,12 @@ impl PyStlHomology {
     }
 
     #[getter]
-    fn get_representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<u32>>>>> {
-        Some(convert_representatives(self.0.representatives()?))
+    fn get_representatives(&self) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
+        Ok(convert_representatives(self.0.representatives()?))
     }
 }
 
-#[pyclass]
+#[pyclass(name = "DirectSum")]
 struct PyDirectSum(
     DirectSum<
         Arc<PathContainer<NodeIndex<u32>>>,
@@ -209,20 +216,32 @@ struct PyDirectSum(
 
 #[pymethods]
 impl PyDirectSum {
+    #[new]
+    fn new(summands: Option<Vec<PyRef<PyStlHomology>>>) -> Self {
+        let mut ds = Self(DirectSum::new(iter::empty()));
+        for hom in summands.unwrap_or_default() {
+            ds.add(hom.borrow());
+        }
+        ds
+    }
+
     #[getter]
     fn get_ranks(&self) -> HashMap<usize, usize> {
         self.0.ranks()
     }
 
     #[getter]
-    fn get_representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<u32>>>>> {
-        Some(convert_representatives(self.0.representatives()?))
+    fn get_representatives(&self) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
+        Ok(convert_representatives(self.0.representatives()?))
+    }
+
+    // Returns whether it replaced an old summand
+    fn add(&mut self, summand: &PyStlHomology) -> bool {
+        let stl_key = (summand.0.stl_paths.node_pair, summand.0.stl_paths.l);
+        let hom = Arc::clone(&summand.0);
+        self.0.add(stl_key, hom).is_some()
     }
 }
-
-// TODO:
-// 1. add_summand
-// 2. Init from a vector of Py<StlHomology>
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -235,5 +254,7 @@ fn format_table(table: Vec<Vec<usize>>) -> PyResult<String> {
 fn gramag(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(format_table, m)?)?;
     m.add_class::<MagGraph>()?;
+    m.add_class::<PyStlHomology>()?;
+    m.add_class::<PyDirectSum>()?;
     Ok(())
 }

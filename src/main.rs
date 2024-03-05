@@ -8,7 +8,7 @@ use gramag::{
 
 fn main() {
     let graph =
-        Graph::<(), ()>::from_edges(&[(0, 1), (0, 2), (0, 3), (1, 5), (2, 5), (3, 4), (4, 5)]);
+        Graph::<(), ()>::from_edges([(0, 1), (0, 2), (0, 3), (1, 5), (2, 5), (3, 4), (4, 5)]);
 
     let distance_matrix = parallel_all_pairs_distance(&graph);
     let distance_matrix = Arc::new(distance_matrix);
@@ -39,6 +39,7 @@ fn main() {
     let reps = container
         .stl((NodeIndex::from(0), NodeIndex::from(5)), 3)
         .serial_homology(true)
-        .representatives();
+        .representatives()
+        .expect("Shoudl have reps because we passed true to serial_homology");
     println!("{:#?}", reps);
 }

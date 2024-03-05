@@ -35,8 +35,8 @@ pub struct PathKey<NodeId: SensibleNode> {
 impl<NodeId: SensibleNode> PathKey<NodeId> {
     fn build_from_path(path: &Path<NodeId>, l: usize) -> Self {
         Self {
-            s: path.first().copied().unwrap(),
-            t: path.last().copied().unwrap(),
+            s: path.first().copied().expect("Path should be non-empty"),
+            t: path.last().copied().expect("Path should be non-empty"),
             k: path.len() - 1,
             l,
         }
@@ -69,13 +69,13 @@ where
     G: GraphRef + IntoNodeIdentifiers,
     <G as GraphBase>::NodeId: SensibleNode,
 {
-    pub fn node_pair_iterator<'a>(&'a self) -> impl Iterator<Item = (G::NodeId, G::NodeId)> + 'a {
+    pub fn node_pair_iterator(&self) -> impl Iterator<Item = (G::NodeId, G::NodeId)> + '_ {
         self.g
             .node_identifiers()
             .flat_map(|s| self.g.node_identifiers().map(move |t| (s, t)))
     }
 
-    pub fn key_iterator<'a>(&'a self) -> impl Iterator<Item = PathKey<G::NodeId>> + 'a {
+    pub fn key_iterator(&self) -> impl Iterator<Item = PathKey<G::NodeId>> + '_ {
         self.node_pair_iterator()
             .flat_map(|(s, t)| (0..=self.l_max).map(move |k| (s, t, k)))
             .flat_map(|(s, t, k)| (0..=self.l_max).map(move |l| (s, t, k, l)))
@@ -104,7 +104,7 @@ where
             let key = PathKey::build_from_path(&node.path, node.l);
             let idx = counters
                 .get(&key)
-                .unwrap()
+                .expect("Should have setup counter for the key")
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             container.store(&key, node.path, idx);
         };
@@ -123,7 +123,7 @@ where
                 FastBfs::<GraphPathSearchNode<G>>::new(start_search_node, None, true)
                     .into_par_iter()
                     .for_each(|path_node| {
-                        store_node(path_node.unwrap());
+                        store_node(path_node.expect("Search node never errors"));
                     })
             });
 
@@ -205,13 +205,9 @@ where
             .collect()
     }
 
-    pub fn stl<'a>(
-        &'a self,
-        node_pair: (NodeId, NodeId),
-        l: usize,
-    ) -> StlPathContainer<&'a Self, NodeId> {
+    pub fn stl(&self, node_pair: (NodeId, NodeId), l: usize) -> StlPathContainer<&Self, NodeId> {
         StlPathContainer {
-            parent_container: &self,
+            parent_container: self,
             node_pair,
             l,
         }
@@ -294,7 +290,7 @@ where
     where
         E: par_dfs::sync::ExtendQueue<Self, Self::Error>,
     {
-        let final_vertex = self.path.last().unwrap();
+        let final_vertex = self.path.last().expect("Path should be non-empty");
 
         let longer_paths = self
             .path_query
@@ -307,7 +303,7 @@ where
                 }
 
                 // Next node must be reachable in finite time
-                let next_hop_distance = self.path_query.d.distance(&final_vertex, &next_node);
+                let next_hop_distance = self.path_query.d.distance(final_vertex, &next_node);
                 let new_l = match next_hop_distance {
                     Distance::Finite(next_hop) => Some(self.l + next_hop),
                     Distance::Infinite => None,
@@ -375,7 +371,7 @@ where
             .path_at_index(&self.key_from_k(k), idx)
     }
 
-    pub fn chain_group_sizes<'a>(&'a self, k_max: usize) -> impl Iterator<Item = usize> + 'a {
+    pub fn chain_group_sizes(&self, k_max: usize) -> impl Iterator<Item = usize> + '_ {
         (0..=k_max).map(|k| self.num_paths(k))
     }
 
@@ -383,8 +379,10 @@ where
         self,
         representatives: bool,
     ) -> StlHomology<Ref, NodeId, VecColumn, SerialDecomposition<VecColumn>> {
-        let mut options = LoPhatOptions::default();
-        options.maintain_v = representatives;
+        let options = LoPhatOptions {
+            maintain_v: representatives,
+            ..Default::default()
+        };
 
         self.homology::<VecColumn, SerialAlgorithm<VecColumn>>(Some(options))
     }

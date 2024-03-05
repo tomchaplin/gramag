@@ -18,7 +18,8 @@ pub fn rank_table(ranks: Vec<Vec<usize>>) -> String {
             .unwrap_or(0)
     };
 
-    let header = iter::once(format!("k=")).chain((0..(l_max + 1)).map(move |k| format!("{}", k)));
+    let header =
+        iter::once("k=".to_string()).chain((0..(l_max + 1)).map(move |k| format!("{}", k)));
     builder.push_record(header);
 
     for l in 0..(l_max + 1) {
@@ -43,8 +44,8 @@ pub fn rank_table(ranks: Vec<Vec<usize>>) -> String {
 
 pub fn rank_map_to_rank_vec(rank_map: &HashMap<usize, usize>, l_max: usize) -> Vec<usize> {
     let mut out = vec![0; l_max + 1];
-    for i in 0..=l_max {
-        out[i] += rank_map.get(&i).copied().unwrap_or(0);
+    for (dim, out_dim) in out.iter_mut().enumerate() {
+        *out_dim += rank_map.get(&dim).copied().unwrap_or(0);
     }
     out
 }

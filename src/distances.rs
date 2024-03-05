@@ -32,7 +32,7 @@ impl<NodeId: Eq + Hash> DistanceMatrix<NodeId> {
         self.0
             .get(i)
             .and_then(|d_from_i| d_from_i.get(j).copied())
-            .map(|d| Distance::Finite(d))
+            .map(Distance::Finite)
             .unwrap_or(Distance::Infinite)
     }
 }

@@ -12,12 +12,11 @@ use rayon::prelude::*;
 use crate::{
     path_search::{PathContainer, PathQuery, SensibleNode, StlPathContainer},
     utils::rank_map_to_rank_vec,
-    Path,
+    MagError, Path, Representative,
 };
 
-// Returns a map indexed by dimension k
-// map[k] is a list of column-indices wherein non-dead homology is created
-
+/// Returns a map indexed by dimension k.
+/// `map[k]` is a list of column-indices wherein non-dead homology is created.
 pub fn homology_idxs<C, Algo>(decomposition: &Algo) -> FxHashMap<usize, Vec<usize>>
 where
     C: Column,
@@ -49,11 +48,9 @@ where
                 .iter()
                 .par_bridge()
                 .map(|node_pair| {
-                    let homology = path_container
-                        .stl(node_pair.clone(), l)
-                        .serial_homology(false);
+                    let homology = path_container.stl(*node_pair, l).serial_homology(false);
 
-                    ((node_pair.clone(), l), Arc::new(homology))
+                    ((*node_pair, l), Arc::new(homology))
                 })
                 .collect();
 
@@ -78,7 +75,7 @@ where
 
 // TODO: Add option to anti-transpose?
 // TODO: Any way to associate this as a method of StlHomology?
-pub fn build_stl_homology<Ref, NodeId, C, Algo>(
+pub(crate) fn build_stl_homology<Ref, NodeId, C, Algo>(
     stl_paths: StlPathContainer<Ref, NodeId>,
     options: Option<Algo::Options>,
 ) -> StlHomology<Ref, NodeId, C, Algo::Decomposition>
@@ -174,10 +171,10 @@ where
             .collect()
     }
 
-    // This might be quite slow because path_at_index can be slow if there are lots of paths with the same key
-    pub fn representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<NodeId>>>>> {
+    /// This might be quite slow because [`path_at_index`](StlPathContainer::path_at_index) can be slow if there are lots of paths with the same key
+    pub fn representatives(&self) -> Result<HashMap<usize, Vec<Representative<NodeId>>>, MagError> {
         if !self.decomposition.has_v() {
-            return None;
+            return Err(MagError::NoRepresentatives);
         }
 
         let collect_rep = |k, rep_idx| {
@@ -190,33 +187,31 @@ where
             self.decomposition
                 // Get the V column
                 .get_v_col(rep_idx)
-                .unwrap()
+                .expect("Should have v_col because decomposition has_v")
                 .entries()
                 // Move each chain complex index back to (s, t, k, l) indexes
                 // and lookup these paths in the path container
                 .map(move |cc_idx| {
                     self.stl_paths
                         .path_at_index(k, cc_idx - dim_offset)
-                        .unwrap()
+                        .expect("v_col should be a sum of (s,t,k,l) paths which should all be in the StlPathContainer")
                 })
-                .into_iter()
                 .collect()
         };
 
-        Some(
-            self.homology_idxs
-                .iter()
-                .map(|(&k, rep_idxs)| {
-                    (
-                        k,
-                        rep_idxs
-                            .iter()
-                            .map(|&rep_idx| collect_rep(k, rep_idx))
-                            .collect(),
-                    )
-                })
-                .collect(),
-        )
+        Ok(self
+            .homology_idxs
+            .iter()
+            .map(|(&k, rep_idxs)| {
+                (
+                    k,
+                    rep_idxs
+                        .iter()
+                        .map(|&rep_idx| collect_rep(k, rep_idx))
+                        .collect(),
+                )
+            })
+            .collect())
     }
 }
 
@@ -260,7 +255,7 @@ where
     }
 
     // Returns None if any of the summands does not have reps
-    pub fn representatives(&self) -> Option<HashMap<usize, Vec<Vec<Path<NodeId>>>>> {
+    pub fn representatives(&self) -> Result<HashMap<usize, Vec<Representative<NodeId>>>, MagError> {
         let mut reps: HashMap<usize, Vec<Vec<Path<NodeId>>>> = HashMap::new();
         for stl_hom in self.summands.values() {
             let stl_reps = stl_hom.representatives()?;
@@ -268,7 +263,7 @@ where
                 reps.entry(k).or_default().extend(reps_k.into_iter())
             }
         }
-        Some(reps)
+        Ok(reps)
     }
 
     pub fn get(&self, key: &StlKey<NodeId>) -> Option<&StlHomology<Ref, NodeId, C, Decomp>> {
