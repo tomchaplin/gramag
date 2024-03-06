@@ -137,23 +137,44 @@ impl MagGraph {
         Ok(PyStlHomology(Arc::new(homology)))
     }
 
-    // TODO: New method - allow arbitrary (s, t) list
-    fn l_homology(&self, l: usize, representatives: Option<bool>) -> Result<PyDirectSum, MagError> {
+    fn l_homology(
+        &self,
+        l: usize,
+        representatives: Option<bool>,
+        node_pairs: Option<Vec<(u32, u32)>>,
+    ) -> Result<PyDirectSum, MagError> {
         self.check_l(l)?;
         let representatives = representatives.unwrap_or(false);
-        let stl_homologies: Vec<_> = self
-            .digraph
-            .node_identifiers()
-            .flat_map(|s| self.digraph.node_identifiers().map(move |t| (s, t)))
-            .par_bridge()
-            .map(|node_pair| {
-                (
-                    (node_pair, l),
-                    Arc::new(self.inner_compute_stl_homology(node_pair, l, representatives)),
-                )
-            })
-            .collect();
-        Ok(PyDirectSum(DirectSum::new(stl_homologies.into_iter())))
+        let compute_stl_homologies = |node_pairs: Box<
+            dyn Iterator<Item = (NodeIndex<u32>, NodeIndex<u32>)> + Send,
+        >| {
+            node_pairs
+                .par_bridge()
+                .map(|node_pair| {
+                    (
+                        (node_pair, l),
+                        Arc::new(self.inner_compute_stl_homology(node_pair, l, representatives)),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+        };
+
+        let stl_homologies = if let Some(u32_node_pairs) = node_pairs {
+            compute_stl_homologies(Box::new(
+                u32_node_pairs
+                    .into_iter()
+                    .map(|(s, t)| (NodeIndex::from(s), NodeIndex::from(t))),
+            ))
+        } else {
+            compute_stl_homologies(Box::new(
+                self.digraph
+                    .node_identifiers()
+                    .flat_map(|s| self.digraph.node_identifiers().map(move |t| (s, t))),
+            ))
+        };
+
+        Ok(PyDirectSum(DirectSum::new(stl_homologies)))
     }
 }
 

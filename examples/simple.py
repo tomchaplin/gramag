@@ -61,6 +61,12 @@ print(ds.ranks)
 print(ds.representatives)
 print("")
 
+print("Fixed l, custom (s, t) list - computed in parallel!")
+ds2 = mg.l_homology(1, representatives=True, node_pairs=[(s, 5) for s in range(6)])
+print(ds2.ranks)
+print(ds2.representatives)
+print("")
+
 print("Errors:")
 try:
     mg.l_homology(12)
