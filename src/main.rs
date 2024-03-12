@@ -17,23 +17,25 @@ fn main() {
     let path_query = PathQuery::build(&graph, distance_matrix.clone(), l_max);
     let container = path_query.run();
 
+    let all_node_pairs: Vec<_> = graph
+        .node_identifiers()
+        .flat_map(|s| graph.node_identifiers().map(move |t| (s, t)))
+        .collect();
+
     println!("Generators");
     println!(
         "{}",
-        rank_table(container.rank_matrix(
-            || {
-                graph
-                    .node_identifiers()
-                    .flat_map(|s| graph.node_identifiers().map(move |t| (s, t)))
-            },
-            l_max
-        ))
+        rank_table(container.rank_matrix(|| all_node_pairs.iter().copied(), l_max))
     );
 
     println!("Homology");
     println!(
         "{}",
-        rank_table(all_homology_ranks_default(&container, path_query.clone()))
+        rank_table(all_homology_ranks_default(
+            &container,
+            l_max,
+            &all_node_pairs
+        ))
     );
 
     let reps = container

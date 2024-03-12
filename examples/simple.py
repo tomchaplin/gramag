@@ -22,7 +22,7 @@ print(format_table(rk_hom))
 
 
 # Count generators for a given list (s, t)
-print("Rank of MC^{(0, 1)}:")
+print("Rank of MC^{(0, 5)}:")
 print(format_table(mg.rank_generators([(0, 5)])))
 
 for s in range(6):

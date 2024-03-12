@@ -4,13 +4,13 @@ use lophat::{
     algorithms::{Decomposition, DecompositionAlgo},
     columns::Column,
 };
-use petgraph::visit::{GraphRef, IntoNodeIdentifiers};
+
 use rustc_hash::FxHashMap;
 
 use rayon::prelude::*;
 
 use crate::{
-    path_search::{PathContainer, PathQuery, SensibleNode, StlPathContainer},
+    path_search::{PathContainer, SensibleNode, StlPathContainer},
     utils::rank_map_to_rank_vec,
     MagError, Path, Representative,
 };
@@ -31,20 +31,20 @@ where
     map
 }
 
-pub fn all_homology_ranks_default<G>(
-    path_container: &PathContainer<G::NodeId>,
-    query: PathQuery<G>,
+pub fn all_homology_ranks_default<NodeId>(
+    path_container: &PathContainer<NodeId>,
+    l_max: usize,
+    node_pairs: &Vec<(NodeId, NodeId)>,
 ) -> Vec<Vec<usize>>
 where
-    G: GraphRef + IntoNodeIdentifiers + Sync,
-    G::NodeId: SensibleNode + Send + Sync,
+    NodeId: SensibleNode + Send + Sync,
 {
-    let all_node_pairs: Vec<_> = query.node_pair_iterator().collect();
+    //let all_node_pairs: Vec<_> = query.node_pair_iterator().collect();
 
-    (0..=query.l_max)
+    (0..=l_max)
         .map(|l| {
             // Compute MH^{(s, t)} for each (s, t) in arbitrary order
-            let node_pair_wise: Vec<_> = all_node_pairs
+            let node_pair_wise: Vec<_> = node_pairs
                 .iter()
                 .par_bridge()
                 .map(|node_pair| {
@@ -55,7 +55,7 @@ where
                 .collect();
 
             let ds = DirectSum::new(node_pair_wise.into_iter());
-            rank_map_to_rank_vec(&ds.ranks(), query.l_max)
+            rank_map_to_rank_vec(&ds.ranks(), l_max)
         })
         .collect()
 }

@@ -19,6 +19,7 @@ type PyDigraph = Graph<(), (), Directed, u32>;
 // TODO:
 // 1. Add API to list found paths
 // 2. Cache homology in the MagGraph?
+// 3. Add API to convert map of ranks to vec of ranks (in order to format)
 
 #[pyclass]
 struct MagGraph {
@@ -53,6 +54,25 @@ impl MagGraph {
             .filter(|&l_max| l_max >= l)
             .ok_or(MagError::InsufficientLMax(l, self.l_max))
             .map(|_| ())
+    }
+
+    fn process_node_pairs_options(
+        &self,
+        node_pairs: Option<Vec<(u32, u32)>>,
+    ) -> Vec<(NodeIndex<u32>, NodeIndex<u32>)> {
+        node_pairs
+            .map(|u32_node_pairs| {
+                u32_node_pairs
+                    .into_iter()
+                    .map(|(s, t)| (NodeIndex::from(s), NodeIndex::from(t)))
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                self.digraph
+                    .node_identifiers()
+                    .flat_map(|s| self.digraph.node_identifiers().map(move |t| (s, t)))
+                    .collect()
+            })
     }
 }
 
@@ -91,32 +111,20 @@ impl MagGraph {
             return vec![];
         };
 
-        if let Some(node_pairs) = node_pairs {
-            self.path_container.rank_matrix(
-                || {
-                    node_pairs
-                        .iter()
-                        .map(|(s, t)| (NodeIndex::from(*s), NodeIndex::from(*t)))
-                },
-                l_max,
-            )
-        } else {
-            self.path_container.rank_matrix(
-                || {
-                    self.digraph
-                        .node_identifiers()
-                        .flat_map(|s| self.digraph.node_identifiers().map(move |t| (s, t)))
-                },
-                l_max,
-            )
-        }
+        let node_pairs = self.process_node_pairs_options(node_pairs);
+        self.path_container
+            .rank_matrix(|| node_pairs.iter().copied(), l_max)
     }
 
-    fn rank_homology(&self) -> Vec<Vec<usize>> {
+    fn rank_homology(&self, node_pairs: Option<Vec<(u32, u32)>>) -> Vec<Vec<usize>> {
         let Some(l_max) = self.l_max else {
             return vec![];
         };
-        all_homology_ranks_default(&self.path_container, self.build_query(l_max))
+        all_homology_ranks_default(
+            &self.path_container,
+            l_max,
+            &self.process_node_pairs_options(node_pairs),
+        )
     }
 
     fn stl_homology(
@@ -145,34 +153,17 @@ impl MagGraph {
     ) -> Result<PyDirectSum, MagError> {
         self.check_l(l)?;
         let representatives = representatives.unwrap_or(false);
-        let compute_stl_homologies = |node_pairs: Box<
-            dyn Iterator<Item = (NodeIndex<u32>, NodeIndex<u32>)> + Send,
-        >| {
-            node_pairs
-                .par_bridge()
-                .map(|node_pair| {
-                    (
-                        (node_pair, l),
-                        Arc::new(self.inner_compute_stl_homology(node_pair, l, representatives)),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-        };
-
-        let stl_homologies = if let Some(u32_node_pairs) = node_pairs {
-            compute_stl_homologies(Box::new(
-                u32_node_pairs
-                    .into_iter()
-                    .map(|(s, t)| (NodeIndex::from(s), NodeIndex::from(t))),
-            ))
-        } else {
-            compute_stl_homologies(Box::new(
-                self.digraph
-                    .node_identifiers()
-                    .flat_map(|s| self.digraph.node_identifiers().map(move |t| (s, t))),
-            ))
-        };
+        let stl_homologies = self
+            .process_node_pairs_options(node_pairs)
+            .into_par_iter()
+            .map(|node_pair| {
+                (
+                    (node_pair, l),
+                    Arc::new(self.inner_compute_stl_homology(node_pair, l, representatives)),
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_iter();
 
         Ok(PyDirectSum(DirectSum::new(stl_homologies)))
     }
