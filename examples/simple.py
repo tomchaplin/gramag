@@ -1,6 +1,6 @@
-from gramag import MagGraph, format_table, DirectSum
+from gramag import MagGraph, format_table
 
-# Create your graph (tuple of edges, no support for isolated vertices atm)
+# Create your graph
 # A few rules:
 # 1. Nodes are labelled by integers
 # 2. Edges are provided as a list of tuples of vertices
