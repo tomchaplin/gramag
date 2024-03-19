@@ -2,6 +2,10 @@
 name = "gramag"
 version = "0.3.2"
 edition = "2021"
+license = "MIT"
+description = "Graph Magnitude Homology in Rust, with Python bindings"
+repository = "https://github.com/tomchaplin/gramag"
+readme = "README.md"
 
 [dependencies]
 pyo3 = { version = "0.18.0", features = ["extension-module"], optional=true }
