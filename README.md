@@ -18,6 +18,7 @@ For background on graph magnitude homology, see the original paper by Hepworth a
 
 In an attempt to compute magnitude homology for large graphs, we attempt to parallelise computation wherever possible; this may result in increased memory usage.
 In particular, the initial basis for each of the magnitude chain groups is computed via a parallelised breadth-first search.
+To limit the number of threads used, simply set the environment variable `RAYON_NUM_THREADS` appropriately.
 
 Throughout the codebase we make extensive use of the fact that the magnitude chain complex splits over node pairs, i.e.
 $$MC_{\bullet, \bullet} = \bigoplus_{(s, t)\in V\times V} MC_{\bullet, \bullet}^{(s, t)}$$
