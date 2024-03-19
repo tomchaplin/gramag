@@ -356,7 +356,6 @@ where
     }
 }
 
-// TODO: Needs to know k_max
 #[derive(Debug)]
 pub struct StlPathContainer<Ref, NodeId>
 where

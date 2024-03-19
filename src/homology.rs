@@ -237,7 +237,6 @@ where
 
 type StlKey<NodeId> = ((NodeId, NodeId), usize);
 
-// TODO: Allow direct sum to just hold a reference? Maybe enfore Arc?
 pub struct DirectSum<Ref, NodeId, C, Decomp>
 where
     NodeId: SensibleNode,
