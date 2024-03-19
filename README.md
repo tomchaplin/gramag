@@ -2,7 +2,7 @@
 
 <h1>gramag</h1>
 
-<b>Gra</b>ph <b>Mag</b>nitude Homology in Rust and Python
+<b>Gra</b>ph <b>Mag</b>nitude Homology in Rust, with Python bindings
 
 [![PyPi](https://img.shields.io/pypi/v/gramag)](https://pypi.org/project/gramag/)
 
