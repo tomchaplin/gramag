@@ -20,6 +20,7 @@ type PyDigraph = Graph<(), (), Directed, u32>;
 // 1. Add API to list found paths
 // 2. Cache homology in the MagGraph?
 // 3. Add API to convert map of ranks to vec of ranks (in order to format)
+// 4. Add API to invoke max_found_l
 
 #[pyclass]
 struct MagGraph {

@@ -43,6 +43,7 @@ impl<NodeId: SensibleNode> PathKey<NodeId> {
 }
 
 // TODO: Allow both stopping conditions?
+// TODO: Consider setting up a custom data structure to store paths in a trie?
 
 #[derive(Debug, Clone)]
 pub enum StoppingCondition {
