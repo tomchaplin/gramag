@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use crate::{
     distances::{parallel_all_pairs_distance, DistanceMatrix},
     homology::{all_homology_ranks_default, DirectSum, StlHomology},
-    path_search::{PathContainer, PathQuery, StlPathContainer},
+    path_search::{PathContainer, PathQuery, StlPathContainer, StoppingCondition},
     utils::rank_table,
     MagError, Path, Representative,
 };
@@ -25,15 +25,40 @@ type PyDigraph = Graph<(), (), Directed, u32>;
 struct MagGraph {
     digraph: PyDigraph,
     distance_matrix: Arc<DistanceMatrix<NodeIndex<u32>>>,
-    path_container: Arc<PathContainer<NodeIndex<u32>>>,
-    l_max: Option<usize>,
+    path_container: Option<Arc<PathContainer<NodeIndex<u32>>>>,
+}
+
+fn xor(a: bool, b: bool) -> bool {
+    (a || b) && (!(a && b))
 }
 
 impl MagGraph {
-    fn build_query(&self, l_max: usize) -> PathQuery<&PyDigraph> {
-        PathQuery::build(&self.digraph, self.distance_matrix.clone(), l_max)
+    fn build_query(
+        &self,
+        k_max: Option<usize>,
+        l_max: Option<usize>,
+    ) -> Result<PathQuery<&PyDigraph>, MagError> {
+        if !xor(k_max.is_some(), l_max.is_some()) {
+            return Err(MagError::BadArguments(
+                "Provide exactly one of the arguments k_max and l_max as a stopping condition."
+                    .to_string(),
+            ));
+        }
+        let stopping_condition = if let Some(k_max) = k_max {
+            StoppingCondition::KMax(k_max)
+        } else if let Some(l_max) = l_max {
+            StoppingCondition::LMax(l_max)
+        } else {
+            unreachable!()
+        };
+        Ok(PathQuery::build(
+            &self.digraph,
+            self.distance_matrix.clone(),
+            stopping_condition,
+        ))
     }
 
+    // Assumption: check_l has already been called!
     fn inner_compute_stl_homology(
         &self,
         node_pair: (NodeIndex<u32>, NodeIndex<u32>),
@@ -45,15 +70,25 @@ impl MagGraph {
         VecColumn,
         SerialDecomposition<VecColumn>,
     > {
-        StlPathContainer::new(self.path_container.clone(), node_pair, l)
+        StlPathContainer::new(self.path_container.as_ref().unwrap().clone(), node_pair, l)
             .serial_homology(representatives)
     }
 
     fn check_l(&self, l: usize) -> Result<(), MagError> {
-        self.l_max
-            .filter(|&l_max| l_max >= l)
-            .ok_or(MagError::InsufficientLMax(l, self.l_max))
-            .map(|_| ())
+        let path_container = self
+            .path_container
+            .as_ref()
+            .ok_or(MagError::InsufficientLMax(l, None))?;
+
+        let l_max = path_container
+            .l_max
+            .unwrap_or_else(|| path_container.max_found_l());
+
+        if l_max >= l {
+            Ok(())
+        } else {
+            Err(MagError::InsufficientLMax(l, Some(l_max)))
+        }
     }
 
     fn process_node_pairs_options(
@@ -83,48 +118,41 @@ impl MagGraph {
         let digraph = Graph::<(), ()>::from_edges(edges.iter());
         let distance_matrix = parallel_all_pairs_distance(&digraph);
         let distance_matrix = Arc::new(distance_matrix);
-        let path_container = Arc::new(PathContainer::new(distance_matrix.clone()));
 
         MagGraph {
             digraph,
             distance_matrix,
-            path_container,
-            l_max: None,
+            path_container: None,
         }
     }
 
-    fn populate_paths(&mut self, l_max: usize) {
-        if let Some(lm) = self.l_max {
-            if lm >= l_max {
-                // Nothing to do
-                return;
-            }
-        }
-        let query = self.build_query(l_max);
+    #[pyo3(signature=(*,k_max=None, l_max=None))]
+    fn populate_paths(
+        &mut self,
+        k_max: Option<usize>,
+        l_max: Option<usize>,
+    ) -> Result<(), MagError> {
+        let query = self.build_query(k_max, l_max)?;
         let path_container = query.run();
-        self.path_container = Arc::new(path_container);
-        self.l_max = Some(l_max);
+        self.path_container = Some(Arc::new(path_container));
+        Ok(())
     }
 
     fn rank_generators(&self, node_pairs: Option<Vec<(u32, u32)>>) -> Vec<Vec<usize>> {
-        let Some(l_max) = self.l_max else {
-            return vec![];
-        };
-
         let node_pairs = self.process_node_pairs_options(node_pairs);
-        self.path_container
-            .rank_matrix(|| node_pairs.iter().copied(), l_max)
+        if let Some(container) = self.path_container.as_ref() {
+            container.rank_matrix(|| node_pairs.iter().copied())
+        } else {
+            vec![]
+        }
     }
 
     fn rank_homology(&self, node_pairs: Option<Vec<(u32, u32)>>) -> Vec<Vec<usize>> {
-        let Some(l_max) = self.l_max else {
-            return vec![];
-        };
-        all_homology_ranks_default(
-            &self.path_container,
-            l_max,
-            &self.process_node_pairs_options(node_pairs),
-        )
+        if let Some(container) = self.path_container.as_ref() {
+            all_homology_ranks_default(container, &self.process_node_pairs_options(node_pairs))
+        } else {
+            vec![]
+        }
     }
 
     fn stl_homology(

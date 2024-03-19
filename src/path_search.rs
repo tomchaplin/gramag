@@ -3,7 +3,6 @@ use crate::homology::{build_stl_homology, StlHomology};
 use crate::Path;
 
 use core::hash::Hash;
-use rustc_hash::FxHashMap;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
@@ -43,6 +42,14 @@ impl<NodeId: SensibleNode> PathKey<NodeId> {
     }
 }
 
+// TODO: Allow both stopping conditions?
+
+#[derive(Debug, Clone)]
+pub enum StoppingCondition {
+    KMax(usize),
+    LMax(usize),
+}
+
 #[derive(Debug, Clone)]
 pub struct PathQuery<G>
 where
@@ -51,7 +58,7 @@ where
 {
     pub g: G,
     pub d: Arc<DistanceMatrix<G::NodeId>>,
-    pub l_max: usize,
+    pub stopping_condition: StoppingCondition,
 }
 
 impl<G> PathQuery<G>
@@ -59,27 +66,16 @@ where
     G: GraphRef,
     <G as GraphBase>::NodeId: Eq + Hash,
 {
-    pub fn build(g: G, d: Arc<DistanceMatrix<G::NodeId>>, l_max: usize) -> Self {
-        Self { g, d, l_max }
-    }
-}
-
-impl<G> PathQuery<G>
-where
-    G: GraphRef + IntoNodeIdentifiers,
-    <G as GraphBase>::NodeId: SensibleNode,
-{
-    pub fn node_pair_iterator(&self) -> impl Iterator<Item = (G::NodeId, G::NodeId)> + '_ {
-        self.g
-            .node_identifiers()
-            .flat_map(|s| self.g.node_identifiers().map(move |t| (s, t)))
-    }
-
-    pub fn key_iterator(&self) -> impl Iterator<Item = PathKey<G::NodeId>> + '_ {
-        self.node_pair_iterator()
-            .flat_map(|(s, t)| (0..=self.l_max).map(move |k| (s, t, k)))
-            .flat_map(|(s, t, k)| (0..=self.l_max).map(move |l| (s, t, k, l)))
-            .map(|(s, t, k, l)| PathKey { s, t, k, l })
+    pub fn build(
+        g: G,
+        d: Arc<DistanceMatrix<G::NodeId>>,
+        stopping_condition: StoppingCondition,
+    ) -> Self {
+        Self {
+            g,
+            d,
+            stopping_condition,
+        }
     }
 }
 
@@ -90,21 +86,27 @@ where
     <G as IntoNodeIdentifiers>::NodeIdentifiers: Send,
 {
     pub fn run(&self) -> PathContainer<G::NodeId> {
+        let k_max = match self.stopping_condition {
+            StoppingCondition::KMax(k_max) => k_max,
+            StoppingCondition::LMax(l_max) => l_max,
+        };
+        let l_max = match self.stopping_condition {
+            StoppingCondition::KMax(_) => None,
+            StoppingCondition::LMax(l_max) => Some(l_max),
+        };
+
         // Setup container for paths and their indexes
-        let container = PathContainer::new(self.d.clone());
+        let container = PathContainer::new(self.d.clone(), k_max, l_max);
 
         // Setup counters for the number of (s, t, k, l) paths encountered
         // This allows us to index such paths as we find them
-        let mut counters = FxHashMap::default();
-        for key in self.key_iterator() {
-            counters.insert(key, AtomicUsize::new(0));
-        }
+        let counters: DashMap<_, AtomicUsize> = DashMap::default();
 
         let store_node = |node: GraphPathSearchNode<G>| {
             let key = PathKey::build_from_path(&node.path, node.l);
             let idx = counters
-                .get(&key)
-                .expect("Should have setup counter for the key")
+                .entry(key)
+                .or_default()
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             container.store(&key, node.path, idx);
         };
@@ -138,18 +140,23 @@ where
 {
     pub paths: DashMap<PathKey<NodeId>, DashMap<Path<NodeId>, usize>>,
     pub d: Arc<DistanceMatrix<NodeId>>,
+    pub k_max: usize,
+    pub l_max: Option<usize>,
 }
 
 impl<NodeId> PathContainer<NodeId>
 where
     NodeId: SensibleNode,
 {
-    pub fn new(d: Arc<DistanceMatrix<NodeId>>) -> Self {
+    fn new(d: Arc<DistanceMatrix<NodeId>>, k_max: usize, l_max: Option<usize>) -> Self {
         Self {
             paths: DashMap::new(),
             d,
+            k_max,
+            l_max,
         }
     }
+
     fn store(&self, key: &PathKey<NodeId>, path: Path<NodeId>, idx: usize) {
         // We use or_default to insert an empty DashMap
         // if we haven't found a path with this key before
@@ -173,7 +180,7 @@ where
     pub fn path_at_index(&self, key: &PathKey<NodeId>, idx: usize) -> Option<Path<NodeId>> {
         self.paths.get(key)?.iter().find_map(|entry| {
             if *entry.value() == idx {
-                return Some(entry.key().clone());
+                Some(entry.key().clone())
             } else {
                 None
             }
@@ -194,15 +201,24 @@ where
     pub fn rank_matrix<I: Iterator<Item = (NodeId, NodeId)>>(
         &self,
         node_identifiers: impl Fn() -> I + Copy,
-        l_max: usize,
     ) -> Vec<Vec<usize>> {
+        let k_max = self.k_max;
+        let l_max = self.l_max.unwrap_or_else(|| self.max_found_l());
         (0..=l_max)
             .map(|l| {
-                (0..=l_max)
+                (0..=k_max)
                     .map(|k| self.aggregated_rank(node_identifiers, k, l))
                     .collect()
             })
             .collect()
+    }
+
+    pub fn max_found_l(&self) -> usize {
+        self.paths
+            .iter()
+            .map(|entry| entry.key().l)
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn stl(&self, node_pair: (NodeId, NodeId), l: usize) -> StlPathContainer<&Self, NodeId> {
@@ -290,6 +306,14 @@ where
     where
         E: par_dfs::sync::ExtendQueue<Self, Self::Error>,
     {
+        if let StoppingCondition::KMax(k_max) = self.path_query.stopping_condition {
+            #[allow(clippy::int_plus_one)]
+            if self.path.len() >= k_max + 1 {
+                // Stop the iteration because we already have a (k,?)-path
+                return Ok(());
+            }
+        }
+
         let final_vertex = self.path.last().expect("Path should be non-empty");
 
         let longer_paths = self
@@ -309,11 +333,10 @@ where
                     Distance::Infinite => None,
                 }?;
 
-                // Total length of new paths must be at most l_max
-                if new_l <= self.path_query.l_max {
-                    Some((next_node, new_l))
-                } else {
-                    None
+                // Total length of new paths must be at most l_max (assuming that is the stopping condition)
+                match self.path_query.stopping_condition {
+                    StoppingCondition::LMax(l_max) if new_l > l_max => None,
+                    _ => Some((next_node, new_l)),
                 }
             })
             .map(|(next_node, new_l)| {
@@ -332,6 +355,7 @@ where
     }
 }
 
+// TODO: Needs to know k_max
 #[derive(Debug)]
 pub struct StlPathContainer<Ref, NodeId>
 where
@@ -375,6 +399,14 @@ where
         (0..=k_max).map(|k| self.num_paths(k))
     }
 
+    pub fn max_homology_dim(&self) -> usize {
+        if self.parent_container.k_max == self.l {
+            self.l
+        } else {
+            self.parent_container.k_max - 1
+        }
+    }
+
     pub fn serial_homology(
         self,
         representatives: bool,
@@ -397,6 +429,8 @@ where
     {
         build_stl_homology::<Ref, NodeId, C, Algo>(self, options)
     }
+
+    // TODO: Add a k-homology function that only compute homology for a given k?
 }
 
 impl<NodeId> StlPathContainer<Arc<PathContainer<NodeId>>, NodeId>

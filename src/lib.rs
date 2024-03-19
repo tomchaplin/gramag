@@ -16,6 +16,7 @@ pub mod utils;
 pub enum MagError {
     NoRepresentatives,
     InsufficientLMax(usize, Option<usize>), // (l, l_max)
+    BadArguments(String),
 }
 
 impl std::fmt::Display for MagError {
@@ -28,6 +29,7 @@ impl std::fmt::Display for MagError {
                 l,
                 l_max.map(|i| i.to_string()).unwrap_or("None".to_owned())
             ),
+            MagError::BadArguments(s) => s.fmt(f),
         }
     }
 }
@@ -35,7 +37,7 @@ impl std::fmt::Display for MagError {
 #[cfg(feature = "python")]
 impl From<MagError> for PyErr {
     fn from(value: MagError) -> Self {
-        pyo3::exceptions::PyValueError::new_err(value.to_string())
+        pyo3::exceptions::PyTypeError::new_err(value.to_string())
     }
 }
 

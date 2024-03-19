@@ -9,6 +9,7 @@
 import pandas as pd
 import networkx as nx
 import numpy as np
+from pathlib import Path
 
 from gramag import MagGraph, format_table
 
@@ -17,7 +18,7 @@ print("=== CELEGANS ===")
 # Read in neurons
 
 # Available here https://www.wormatlas.org/neuronalwiring.html (Section 2.1 in Excel format)
-df = pd.read_csv("./NeuronConnect.csv")
+df = pd.read_csv(Path(__file__).parent / "NeuronConnect.csv")
 print("Loaded data")
 
 # Just look at synapses from the sending side
@@ -46,7 +47,7 @@ print("Built digraph")
 
 mg = MagGraph(G.edges)
 l_max = 2
-mg.populate_paths(l_max)
+mg.populate_paths(l_max=l_max)
 print(f"Populated paths up to l={l_max}")
 # rk_hom = mg.rank_homology()
 # print(format_table(rk_hom))

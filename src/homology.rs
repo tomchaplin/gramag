@@ -17,7 +17,8 @@ use crate::{
 
 /// Returns a map indexed by dimension k.
 /// `map[k]` is a list of column-indices wherein non-dead homology is created.
-pub fn homology_idxs<C, Algo>(decomposition: &Algo) -> FxHashMap<usize, Vec<usize>>
+/// `k_max` is maximum homology to compute dimension up to
+pub fn homology_idxs<C, Algo>(decomposition: &Algo, k_max: usize) -> FxHashMap<usize, Vec<usize>>
 where
     C: Column,
     Algo: Decomposition<C>,
@@ -26,6 +27,9 @@ where
     let diagram = decomposition.diagram();
     for idx in diagram.unpaired {
         let dim = decomposition.get_r_col(idx).dimension();
+        if dim > k_max {
+            continue;
+        }
         map.entry(dim).or_default().push(idx);
     }
     map
@@ -33,14 +37,14 @@ where
 
 pub fn all_homology_ranks_default<NodeId>(
     path_container: &PathContainer<NodeId>,
-    l_max: usize,
-    node_pairs: &Vec<(NodeId, NodeId)>,
+    node_pairs: &[(NodeId, NodeId)],
 ) -> Vec<Vec<usize>>
 where
     NodeId: SensibleNode + Send + Sync,
 {
-    //let all_node_pairs: Vec<_> = query.node_pair_iterator().collect();
-
+    let l_max = path_container
+        .l_max
+        .unwrap_or_else(|| path_container.max_found_l());
     (0..=l_max)
         .map(|l| {
             // Compute MH^{(s, t)} for each (s, t) in arbitrary order
@@ -55,7 +59,7 @@ where
                 .collect();
 
             let ds = DirectSum::new(node_pair_wise.into_iter());
-            rank_map_to_rank_vec(&ds.ranks(), l_max)
+            rank_map_to_rank_vec(&ds.ranks())
         })
         .collect()
 }
@@ -86,15 +90,15 @@ where
     Algo: DecompositionAlgo<C>,
 {
     // Setup algorithm to receive entries
-
     let mut algo = Algo::init(options);
-    let sizes: Vec<_> = stl_paths.chain_group_sizes(stl_paths.l).collect();
+    let k_max = stl_paths.parent_container.k_max;
+    let sizes: Vec<_> = stl_paths.chain_group_sizes(k_max).collect();
     let empty_cols =
-        (0..=stl_paths.l).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
+        (0..=k_max).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
     algo = algo.add_cols(empty_cols);
 
     // Loop through each homological dimension (k)
-    for k in 0..=stl_paths.l {
+    for k in 0..=k_max {
         // k= 0 => no boundary
         if k == 0 {
             continue;
@@ -155,7 +159,9 @@ where
     Decomp: Decomposition<C>,
 {
     pub fn new(stl_paths: StlPathContainer<Ref, NodeId>, decomposition: Decomp) -> Self {
-        let homology_idxs = homology_idxs(&decomposition);
+        // If k_max = l then we can compute up to l because there are no chains in higher degrees
+        // Else we can only compute homology up to k_max -1
+        let homology_idxs = homology_idxs(&decomposition, stl_paths.max_homology_dim());
         Self {
             stl_paths,
             decomposition,
@@ -165,10 +171,18 @@ where
     }
 
     pub fn ranks(&self) -> HashMap<usize, usize> {
-        self.homology_idxs
+        let mut rank_map: HashMap<_, _> = self
+            .homology_idxs
             .iter()
             .map(|(&dim, idxs)| (dim, idxs.len()))
-            .collect()
+            .collect();
+
+        let max_homology_dim = self.stl_paths.max_homology_dim();
+        for dim in 0..=max_homology_dim {
+            // Dimension must be 0 otherwise
+            rank_map.entry(dim).or_insert(0);
+        }
+        rank_map
     }
 
     /// This might be quite slow because [`path_at_index`](StlPathContainer::path_at_index) can be slow if there are lots of paths with the same key
@@ -199,7 +213,7 @@ where
                 .collect()
         };
 
-        Ok(self
+        let mut reps_map: HashMap<_, _> = self
             .homology_idxs
             .iter()
             .map(|(&k, rep_idxs)| {
@@ -211,7 +225,13 @@ where
                         .collect(),
                 )
             })
-            .collect())
+            .collect();
+
+        for dim in 0..self.stl_paths.max_homology_dim() {
+            // Dimension 0 => no reps
+            reps_map.entry(dim).or_insert_with(Vec::new);
+        }
+        Ok(reps_map)
     }
 }
 

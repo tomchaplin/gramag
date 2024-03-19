@@ -10,6 +10,7 @@ pub fn rank_table(ranks: Vec<Vec<usize>>) -> String {
     let mut builder = Builder::new();
 
     let l_max = ranks.len() - 1;
+    let k_max = ranks[0].len() - 1;
 
     let get_rank = |l: usize, k: usize| {
         ranks
@@ -19,11 +20,11 @@ pub fn rank_table(ranks: Vec<Vec<usize>>) -> String {
     };
 
     let header =
-        iter::once("k=".to_string()).chain((0..(l_max + 1)).map(move |k| format!("{}", k)));
+        iter::once("k=".to_string()).chain((0..(k_max + 1)).map(move |k| format!("{}", k)));
     builder.push_record(header);
 
     for l in 0..(l_max + 1) {
-        let ranks = (0..(l_max + 1)).map(|k| format!("{}", get_rank(l, k)));
+        let ranks = (0..(k_max + 1)).map(|k| format!("{}", get_rank(l, k)));
         let row = iter::once(format!("l={}", l)).chain(ranks);
 
         builder.push_record(row)
@@ -42,10 +43,15 @@ pub fn rank_table(ranks: Vec<Vec<usize>>) -> String {
         .to_string()
 }
 
-pub fn rank_map_to_rank_vec(rank_map: &HashMap<usize, usize>, l_max: usize) -> Vec<usize> {
-    let mut out = vec![0; l_max + 1];
+pub fn rank_map_to_rank_vec(rank_map: &HashMap<usize, usize>) -> Vec<usize> {
+    let k_max = rank_map.keys().max().copied().unwrap();
+
+    let mut out = vec![0; k_max + 1];
     for (dim, out_dim) in out.iter_mut().enumerate() {
-        *out_dim += rank_map.get(&dim).copied().unwrap_or(0);
+        *out_dim += rank_map
+            .get(&dim)
+            .copied()
+            .expect("Should have computed all degrees");
     }
     out
 }

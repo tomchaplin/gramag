@@ -14,7 +14,11 @@ fn main() {
     let distance_matrix = Arc::new(distance_matrix);
 
     let l_max = 10;
-    let path_query = PathQuery::build(&graph, distance_matrix.clone(), l_max);
+    let path_query = PathQuery::build(
+        &graph,
+        distance_matrix.clone(),
+        gramag::path_search::StoppingCondition::LMax(l_max),
+    );
     let container = path_query.run();
 
     let all_node_pairs: Vec<_> = graph
@@ -25,17 +29,13 @@ fn main() {
     println!("Generators");
     println!(
         "{}",
-        rank_table(container.rank_matrix(|| all_node_pairs.iter().copied(), l_max))
+        rank_table(container.rank_matrix(|| all_node_pairs.iter().copied()))
     );
 
     println!("Homology");
     println!(
         "{}",
-        rank_table(all_homology_ranks_default(
-            &container,
-            l_max,
-            &all_node_pairs
-        ))
+        rank_table(all_homology_ranks_default(&container, &all_node_pairs))
     );
 
     let reps = container
