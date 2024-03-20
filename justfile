@@ -29,3 +29,13 @@ py_docs_build: py_build py_docs_test
 
 py_docs_open: py_docs_build
 	xdg-open docs/build/html/index.html
+
+setup_venv:
+	#!/usr/bin/env bash
+	rm -rf .venv
+	python -m venv .venv
+	source .venv/bin/activate
+	pip install maturin[zig]
+	pip install -r docs/requirements.txt
+	# Install requirements for celegans example
+	pip install numpy pandas networkx
