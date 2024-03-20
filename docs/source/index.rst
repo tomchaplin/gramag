@@ -3,7 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-gramag - Python API Docs
+Python API
 =====================================
 
 .. automodule:: gramag
@@ -11,8 +11,10 @@ gramag - Python API Docs
    :undoc-members:
 
    .. literalinclude:: examples/simple.py
-      :caption: A simple example
       :language: python
+
+Doctests
+========
 
 .. doctest::
 

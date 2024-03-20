@@ -24,6 +24,7 @@ extensions = [
     "sphinx.ext.inheritance_diagram",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.napoleon",
+    "sphinx.ext.mathjax",
     "sphinx_rtd_theme",
 ]
 
