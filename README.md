@@ -38,7 +38,7 @@ pip install gramag
 
 ### Usage
 
-A simple example script is provided in [`examples/simple.py`](https://github.com/tomchaplin/gramag/blob/main/examples/simple.py).
+A simple example script is provided in [`simple.py`](docs/source/examples/simple.py).
 ```python
 from gramag import MagGraph, format_table
 
@@ -116,7 +116,7 @@ Rank of MH^{(0, 6)}:
 Representatives for MH_{2, 4}:
 [[[0, 5, 6]]]
 ```
-For more detailed usage, please refer to [`examples/advanced.py`](https://github.com/tomchaplin/gramag/blob/main/examples/advanced.py).
+For more detailed usage, please refer to [`advanced.py`](docs/source/examples/advanced.py).
 Documentation of the Python API is forthcoming.
 
 ## Rust

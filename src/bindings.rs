@@ -128,6 +128,7 @@ impl MagGraph {
     }
 
     #[pyo3(signature=(*,k_max=None, l_max=None))]
+    /// Populate the paths
     fn populate_paths(
         &mut self,
         k_max: Option<usize>,
@@ -174,6 +175,17 @@ impl MagGraph {
         Ok(PyStlHomology(Arc::new(homology)))
     }
 
+    /// Computes the (k, l)-magnitude homology for a fixed l and all possible k, summed over a list of node pairs.
+    ///
+    /// :param l: The fixed length l, as described above.
+    /// :type l: int
+    /// :param representatives: Whether to compute representatives of each homology group. Defaults to False.
+    /// :type representatives: bool, optional
+    /// :param node_pairs: The list of node pairs (s, t) over which to compute and sum magnitude homology. Defaults to all possible node pairs.
+    /// :type node_pairs: List[Tuple[int, int]], optional
+    /// :return: The homology requested
+    /// :rtype: DirectSum
+    /// :raises TypeError: If no paths have been found with length ≥l, an error is raised.
     fn l_homology(
         &self,
         l: usize,
@@ -285,10 +297,16 @@ fn format_table(table: Vec<Vec<usize>>) -> PyResult<String> {
     Ok(rank_table(table))
 }
 
-/// A Python module implemented in Rust.
+#[pyfunction]
+fn version() -> String {
+    format!("{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Python bindings to gramag - computing graph magnitude homology
 #[pymodule]
 fn gramag(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(format_table, m)?)?;
+    m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_class::<MagGraph>()?;
     m.add_class::<PyStlHomology>()?;
     m.add_class::<PyDirectSum>()?;
