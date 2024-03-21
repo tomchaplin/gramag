@@ -263,25 +263,49 @@ where
         }
     }
 
-    // TODO: If any summand doesn't have a given k then we shouldn't report!
     pub fn ranks(&self) -> HashMap<usize, usize> {
         let mut ranks = HashMap::new();
+
+        let mut n_summands_by_dim: HashMap<_, usize> = HashMap::new();
+        let n_summands = self.summands.len();
+
+        // Add up all the ranks
         for stl_hom in self.summands.values() {
             for (k, rk_k) in stl_hom.ranks() {
                 *ranks.entry(k).or_default() += rk_k;
+                *n_summands_by_dim.entry(k).or_default() += 1;
             }
         }
+
+        // Remove any dims that didn't appear in every summand
+        for (k, n) in n_summands_by_dim {
+            if n != n_summands {
+                ranks.remove(&k);
+            }
+        }
+
         ranks
     }
 
-    // TODO: If any summand doesn't have a given k then we shouldn't report!
     // Returns Err if any of the summands does not have reps
     pub fn representatives(&self) -> Result<HashMap<usize, Vec<Representative<NodeId>>>, MagError> {
         let mut reps: HashMap<usize, Vec<Vec<Path<NodeId>>>> = HashMap::new();
+        let mut n_summands_by_dim: HashMap<_, usize> = HashMap::new();
+        let n_summands = self.summands.len();
+
+        // Collect all the reps
         for stl_hom in self.summands.values() {
             let stl_reps = stl_hom.representatives()?;
             for (k, reps_k) in stl_reps {
-                reps.entry(k).or_default().extend(reps_k.into_iter())
+                reps.entry(k).or_default().extend(reps_k.into_iter());
+                *n_summands_by_dim.entry(k).or_default() += 1;
+            }
+        }
+
+        // Remove any dims that didn't appear in every summand
+        for (k, n) in n_summands_by_dim {
+            if n != n_summands {
+                reps.remove(&k);
             }
         }
         Ok(reps)
