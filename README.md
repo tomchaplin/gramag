@@ -114,7 +114,9 @@ Rank of MH^{(0, 6)}:
 │ l=6 │ .  .  .  .  .  .  . │
 ╰─────┴─────────────────────╯
 Representatives for MH_{2, 4}:
-[[[0, 5, 6]]```
+[[[0, 5, 6]]
+```
+
 For more detailed usage, please refer to [`advanced.py`](docs/source/examples/advanced.py).
 Documentation of the Python API is forthcoming.
 
