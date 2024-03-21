@@ -26,6 +26,7 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: "1.4.0"
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
@@ -50,6 +51,7 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: "1.4.0"
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
@@ -72,6 +74,7 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: "1.4.0"
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
@@ -103,6 +106,7 @@ jobs:
   #    - name: Build wheels
   #      uses: PyO3/maturin-action@v1
   #      with:
+  #        maturin-version: "1.4.0"
   #        target: wasm32-unknown-emscripten
   #        args: --release --out dist -i ${{ env.PYTHON_VERSION }}
   #        sccache: 'true'
@@ -120,6 +124,7 @@ jobs:
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: "1.4.0"
           command: sdist
           args: --out dist
       - name: Upload sdist
@@ -145,6 +150,7 @@ jobs:
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
+          maturin-version: "1.4.0"
           command: upload
           args: --non-interactive --skip-existing *
       # # Emscripten releases
