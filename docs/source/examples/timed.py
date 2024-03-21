@@ -1,6 +1,6 @@
 from pprint import pprint
 import numpy as np
-from gramag import MagGraph, format_table, DirectSum
+from gramag import MagGraph, format_rank_table
 import time
 
 
@@ -22,4 +22,4 @@ std = np.std(times)
 print(f"{median:.2f}±{std:.2f}")
 pprint(times)
 
-# print(format_table(mg.rank_generators()))
+# print(format_rank_table(mg.rank_generators()))

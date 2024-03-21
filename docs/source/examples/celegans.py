@@ -11,7 +11,7 @@ import networkx as nx
 import numpy as np
 from pathlib import Path
 
-from gramag import MagGraph, format_table
+from gramag import MagGraph, format_rank_table
 
 print("=== CELEGANS ===")
 
@@ -49,8 +49,8 @@ mg = MagGraph(G.edges)
 l_max = 2
 mg.populate_paths(l_max=l_max)
 print(f"Populated paths up to l={l_max}")
-# rk_hom = mg.rank_homology()
-# print(format_table(rk_hom))
+rk_hom = mg.rank_homology()
+print(format_rank_table(rk_hom))
 
 omega_0 = mg.l_homology(0, representatives=True)
 print("Got Ω_0")
@@ -58,4 +58,3 @@ omega_1 = mg.l_homology(1, representatives=True)
 print("Got Ω_1")
 omega_2 = mg.l_homology(2, representatives=True)
 print("Got Ω_2")
-print(len(omega_2.representatives[2]))

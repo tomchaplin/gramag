@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use gramag::{
     distances::parallel_all_pairs_distance, homology::all_homology_ranks_default,
-    path_search::PathQuery, utils::rank_table,
+    path_search::PathQuery, utils::format_rank_table,
 };
 
 fn main() {
@@ -29,13 +29,19 @@ fn main() {
     println!("Generators");
     println!(
         "{}",
-        rank_table(container.rank_matrix(|| all_node_pairs.iter().copied()))
+        format_rank_table(
+            container.rank_matrix(|| all_node_pairs.iter().copied()),
+            Default::default()
+        )
     );
 
     println!("Homology");
     println!(
         "{}",
-        rank_table(all_homology_ranks_default(&container, &all_node_pairs))
+        format_rank_table(
+            all_homology_ranks_default(&container, &all_node_pairs),
+            Default::default()
+        )
     );
 
     let reps = container

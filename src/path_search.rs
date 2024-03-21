@@ -403,7 +403,7 @@ where
         if self.parent_container.k_max == self.l {
             self.l
         } else {
-            self.parent_container.k_max - 1
+            usize::min(self.parent_container.k_max - 1, self.l)
         }
     }
 

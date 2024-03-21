@@ -40,7 +40,7 @@ pip install gramag
 
 A simple example script is provided in [`simple.py`](docs/source/examples/simple.py).
 ```python
-from gramag import MagGraph, format_table
+from gramag import MagGraph, format_rank_table
 
 # Create your graph
 # A few rules:
@@ -61,14 +61,14 @@ rk_hom = mg.rank_homology()
 
 # Pretty print
 print("Rank of MC:")
-print(format_table(rk_gens))
+print(format_rank_table(rk_gens))
 
 print("Rank of MH:")
-print(format_table(rk_hom))
+print(format_rank_table(rk_hom))
 
 # Compute homology summed over a given list of (s, t)
 print("Rank of MH^{(0, 6)}:")
-print(format_table(mg.rank_homology(node_pairs=[(0, 6)])))
+print(format_rank_table(mg.rank_homology(node_pairs=[(0, 6)])))
 
 # Compute homology with representatives, at a given l
 homology = mg.l_homology(4, representatives=True)
@@ -81,41 +81,40 @@ Rank of MC:
 ╭─────┬─────────────────────╮
 │ k=  │ 0  1  2  3  4  5  6 │
 ├─────┼─────────────────────┤
-│ l=0 │ 7  0  0  0  0  0  0 │
-│ l=1 │ 0  8  0  0  0  0  0 │
-│ l=2 │ 0  4  5  0  0  0  0 │
-│ l=3 │ 0  2  4  2  0  0  0 │
-│ l=4 │ 0  0  3  3  1  0  0 │
-│ l=5 │ 0  0  0  0  0  0  0 │
-│ l=6 │ 0  0  0  0  0  0  0 │
+│ l=0 │ 7                   │
+│ l=1 │ .  8                │
+│ l=2 │ .  4  5             │
+│ l=3 │ .  2  4  2          │
+│ l=4 │ .  .  3  3  1       │
+│ l=5 │ .  .  .  .  .  .    │
+│ l=6 │ .  .  .  .  .  .  . │
 ╰─────┴─────────────────────╯
 Rank of MH:
-╭─────┬──────────────────╮
-│ k=  │ 0  1  2  3  4  5 │
-├─────┼──────────────────┤
-│ l=0 │ 7  0  0  0  0  0 │
-│ l=1 │ 0  8  0  0  0  0 │
-│ l=2 │ 0  0  1  0  0  0 │
-│ l=3 │ 0  0  0  0  0  0 │
-│ l=4 │ 0  0  1  0  0  0 │
-│ l=5 │ 0  0  0  0  0  0 │
-│ l=6 │ 0  0  0  0  0  0 │
-╰─────┴──────────────────╯
+╭─────┬─────────────────────╮
+│ k=  │ 0  1  2  3  4  5  6 │
+├─────┼─────────────────────┤
+│ l=0 │ 7                   │
+│ l=1 │ .  8                │
+│ l=2 │ .  .  1             │
+│ l=3 │ .  .  .  .          │
+│ l=4 │ .  .  1  .  .       │
+│ l=5 │ .  .  .  .  .  .    │
+│ l=6 │ .  .  .  .  .  .  . │
+╰─────┴─────────────────────╯
 Rank of MH^{(0, 6)}:
-╭─────┬──────────────────╮
-│ k=  │ 0  1  2  3  4  5 │
-├─────┼──────────────────┤
-│ l=0 │ 0  0  0  0  0  0 │
-│ l=1 │ 0  0  0  0  0  0 │
-│ l=2 │ 0  0  1  0  0  0 │
-│ l=3 │ 0  0  0  0  0  0 │
-│ l=4 │ 0  0  1  0  0  0 │
-│ l=5 │ 0  0  0  0  0  0 │
-│ l=6 │ 0  0  0  0  0  0 │
-╰─────┴──────────────────╯
+╭─────┬─────────────────────╮
+│ k=  │ 0  1  2  3  4  5  6 │
+├─────┼─────────────────────┤
+│ l=0 │ .                   │
+│ l=1 │ .  .                │
+│ l=2 │ .  .  1             │
+│ l=3 │ .  .  .  .          │
+│ l=4 │ .  .  1  .  .       │
+│ l=5 │ .  .  .  .  .  .    │
+│ l=6 │ .  .  .  .  .  .  . │
+╰─────┴─────────────────────╯
 Representatives for MH_{2, 4}:
-[[[0, 5, 6]]]
-```
+[[[0, 5, 6]]```
 For more detailed usage, please refer to [`advanced.py`](docs/source/examples/advanced.py).
 Documentation of the Python API is forthcoming.
 

@@ -1,4 +1,4 @@
-from gramag import MagGraph, format_table, DirectSum
+from gramag import MagGraph, format_rank_table, DirectSum
 
 # Create graph (tuple of edges, no support for isolated vertices atm)
 mg = MagGraph([(0, 1), (0, 2), (0, 3), (1, 6), (2, 6), (3, 4), (4, 5), (5, 6)])
@@ -15,15 +15,15 @@ rk_hom = mg.rank_homology()
 
 # Pretty print
 print("Rank of MC:")
-print(format_table(rk_gens))
+print(format_rank_table(rk_gens))
 
 print("Rank of MH:")
-print(format_table(rk_hom))
+print(format_rank_table(rk_hom))
 
 
 # Count generators for a given list (s, t)
 print("Rank of MC^{(0, 6)}:")
-print(format_table(mg.rank_generators([(0, 6)])))
+print(format_rank_table(mg.rank_generators([(0, 6)])))
 
 for s in range(6):
     for t in range(6):
@@ -99,8 +99,8 @@ print("Stopping condition based on k_max:")
 # No limit on l, but k_max up to 3 so can compute homology up to k=2
 mg.populate_paths(k_max=3)
 print("MC:")
-print(format_table(mg.rank_generators()))
+print(format_rank_table(mg.rank_generators()))
 print("MH:")
-print(format_table(mg.rank_homology()))
+print(format_rank_table(mg.rank_homology(), zero="0", unknown="-", above_diagonal="0"))
 print("l=4 representatives")
 print(mg.l_homology(4, representatives=True).representatives)

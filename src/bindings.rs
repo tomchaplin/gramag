@@ -10,8 +10,7 @@ use crate::{
     distances::{parallel_all_pairs_distance, DistanceMatrix},
     homology::{all_homology_ranks_default, DirectSum, StlHomology},
     path_search::{PathContainer, PathQuery, StlPathContainer, StoppingCondition},
-    utils::rank_table,
-    MagError, Path, Representative,
+    utils, MagError, Path, Representative,
 };
 
 type PyDigraph = Graph<(), (), Directed, u32>;
@@ -34,7 +33,7 @@ type PyDigraph = Graph<(), (), Directed, u32>;
 /// 3. Isolated vertices are not supported at the moment
 ///
 /// :param edges: The list of directed edges in the graph
-/// :type edges: List[Tuple[int, int]]
+/// :type edges: list[tuple[int, int]]
 ///
 #[pyclass]
 struct MagGraph {
@@ -148,8 +147,8 @@ impl MagGraph {
     /// This method performs a parallelised breadth-first search to find all paths in the graph, subject to a stopping condition.
     /// You must provide exactly one of ``k_max`` or ``l_max``; typically ``l_max`` is faster but allows you to compute fewer homology groups:
     ///
-    /// * If you provide ``l_max`` then you will be able to compute :math:`M\!H_{k, l}` whenever :math:`l\leq` ``l_max`` (and hence :math:`k \leq` ``l_max``).
-    /// * If you provide ``k_max`` then you will be able to compute :math:`M\!H_{k, l}` whenever :math:`k <` ``k_max`` (in which case :math:`l` can be arbirarily large) or :math:`l \leq` ``k_max`` (in which case :math:`k\leq` ``k_max``).
+    /// * If you provide ``l_max`` then you will be able to compute :math:`\mathrm{MH}_{k, l}` whenever :math:`l\leq` ``l_max`` (and hence :math:`k \leq` ``l_max``).
+    /// * If you provide ``k_max`` then you will be able to compute :math:`\mathrm{MH}_{k, l}` whenever :math:`k <` ``k_max`` (in which case :math:`l` can be arbirarily large) or :math:`l \leq` ``k_max`` (in which case :math:`k\leq` ``k_max``).
     ///
     /// :param k_max: If provided, finds all :math:`(k, l)`-paths where :math:`k \leq` ``k_max``.
     /// :type k_max: init, optional
@@ -167,12 +166,12 @@ impl MagGraph {
         Ok(())
     }
 
-    /// Computes all possible magnitude chain group ranks :math:`\operatorname{rank}(M\!C_{k, l}^\mathcal{P})`, summed over a list of node pairs :math:`\mathcal{P}`.
+    /// Computes all possible magnitude chain group ranks :math:`\operatorname{rank}(\mathrm{MC}_{k, l}^\mathcal{P})`, summed over a list of node pairs :math:`\mathcal{P}`.
     ///
     /// :param node_pairs: The list of node pairs :math:`\mathcal{P}` over which to compute and sum the ranks. Defaults to all possible node pairs.
-    /// :type node_pairs: List[Tuple[int, int]], optional
-    /// :return: The ranks of the known chain groups groups, where :math:`\operatorname{rank}(M\!C_{k,l}^\mathcal{P})` is stored in ``output[l][k]``.
-    /// :rtype: List[List[int]]
+    /// :type node_pairs: list[tuple[int, int]], optional
+    /// :return: The ranks of the known chain groups groups, where :math:`\operatorname{rank}(\mathrm{MC}_{k,l}^\mathcal{P})` is stored in ``output[l][k]``.
+    /// :rtype: list[list[int]]
     fn rank_generators(&self, node_pairs: Option<Vec<(u32, u32)>>) -> Vec<Vec<usize>> {
         let node_pairs = self.process_node_pairs_options(node_pairs);
         if let Some(container) = self.path_container.as_ref() {
@@ -182,13 +181,13 @@ impl MagGraph {
         }
     }
 
-    /// Computes all possible magnitude homology ranks :math:`\operatorname{rank}(M\!H_{k, l}^\mathcal{P})`, summed over a list of node pairs :math:`\mathcal{P}`.
+    /// Computes all possible magnitude homology ranks :math:`\operatorname{rank}(\mathrm{MH}_{k, l}^\mathcal{P})`, summed over a list of node pairs :math:`\mathcal{P}`.
     /// The homology for each node pair :math:`(s, t)\in\mathcal{P}` is computed in parallel.
     ///
     /// :param node_pairs: The list of node pairs :math:`\mathcal{P}` over which to compute and sum magnitude homology. Defaults to all possible node pairs.
-    /// :type node_pairs: List[Tuple[int, int]], optional
-    /// :return: The ranks of the known homology groups, where :math:`\operatorname{rank}(M\!H_{k,l}^\mathcal{P})` is stored in ``output[l][k]``.
-    /// :rtype: List[List[int]]
+    /// :type node_pairs: list[tuple[int, int]], optional
+    /// :return: The ranks of the known homology groups, where :math:`\operatorname{rank}(\mathrm{MH}_{k,l}^\mathcal{P})` is stored in ``output[l][k]``.
+    /// :rtype: list[List[int]]
     fn rank_homology(&self, node_pairs: Option<Vec<(u32, u32)>>) -> Vec<Vec<usize>> {
         if let Some(container) = self.path_container.as_ref() {
             all_homology_ranks_default(container, &self.process_node_pairs_options(node_pairs))
@@ -197,10 +196,10 @@ impl MagGraph {
         }
     }
 
-    /// Computes magnitude homology :math:`M\!H_{k, l}^{(s, t)}` for a fixed node pair :math:`(s, t)`, a fixed length :math:`l` and all possible homological degrees :math:`k`.
+    /// Computes magnitude homology :math:`\mathrm{MH}_{k, l}^{(s, t)}` for a fixed node pair :math:`(s, t)`, a fixed length :math:`l` and all possible homological degrees :math:`k`.
     ///
     /// :param node_pair: The node pair :math:`(s, t)`, as described above.
-    /// :type node_pair: Tuple[int, int]
+    /// :type node_pair: tuple[int, int]
     /// :param l: The fixed length :math:`l`, as described above.
     /// :type l: int
     /// :param representatives: Whether to compute representatives of each homology group. Defaults to ``False``.
@@ -226,7 +225,7 @@ impl MagGraph {
         Ok(PyStlHomology(Arc::new(homology)))
     }
 
-    /// Computes magnitude homology :math:`M\!H_{k, l}^{(s, t)}` for a fixed length :math:`l` and all possible homological degrees :math:`k`, summed over a list of node pairs :math:`\mathcal{P}`.
+    /// Computes magnitude homology :math:`\mathrm{MH}_{k, l}^{\mathcal{P}}` for a fixed length :math:`l` and all possible homological degrees :math:`k`, summed over a list of node pairs :math:`\mathcal{P}`.
     /// The homology for each node pair :math:`(s, t)\in\mathcal{P}` is computed in parallel.
     ///
     /// :param l: The fixed length :math:`l`, as described above.
@@ -234,7 +233,7 @@ impl MagGraph {
     /// :param representatives: Whether to compute representatives of each homology group. Defaults to ``False``.
     /// :type representatives: bool, optional
     /// :param node_pairs: The list of node pairs :math:`\mathcal{P}` over which to compute and sum magnitude homology. Defaults to all possible node pairs.
-    /// :type node_pairs: List[Tuple[int, int]], optional
+    /// :type node_pairs: list[tuple[int, int]], optional
     /// :return: The requested homology groups.
     /// :rtype: DirectSum
     /// :raises TypeError: If no paths have been found with length :math:`\geq l`, an error is raised.
@@ -262,6 +261,8 @@ impl MagGraph {
     }
 }
 
+/// ``StlHomology`` objects represent the homology groups :math:`\mathrm{MH}_{k, l}^{(s, t)}` for some fixed node pair :math:`(s, t)\in V \times V` and a fixed length :math:`l`.
+/// The range of the homological degree :math:`k` varies depending on the last call to |populate_paths|.
 #[pyclass(name = "StlHomology")]
 struct PyStlHomology(
     Arc<
@@ -293,17 +294,33 @@ fn convert_representatives(
 
 #[pymethods]
 impl PyStlHomology {
+    /// Retrieves the ranks of the homology groups.
+    ///
+    /// :return: A dictionary where ``output[k]`` stores the rank :math:`\operatorname{rank}(\mathrm{MH}_{k, l}^{(s, t)})`.
+    /// :rtype: dict[usize, usize]
     #[getter]
     fn get_ranks(&self) -> HashMap<usize, usize> {
         self.0.ranks()
     }
 
+    /// Retrieves a (non-unique) set of representatives for the homology groups.
+    /// Each representative is a :math:`\mathbb{Z}_2`-linear combination of paths (i.e. a set of paths) and is thus represented by a ``list[list[usize]]`` where each inner ``list[usize]`` represents a path.
+    ///
+    /// :return: A dictionary where ``output[k]`` stores a list of representatives for :math:`\mathrm{MH}_{k, l}^{(s, t)}` with ``len(output[k])`` :math:`=\operatorname{rank}(\mathrm{MH}_{k, l}^{(s, t)})`.
+    /// :rtype: dict[usize, list[list[list[usize]]]]
+    /// :raise TypeError: If this homology was computed with ``representatives = False`` then an error is raised.
     #[getter]
     fn get_representatives(&self) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
         Ok(convert_representatives(self.0.representatives()?))
     }
 }
 
+/// ``DirectSum`` objects represent a direct sum of homology groups :math:`\oplus_{((s, t), l)\in I}\mathrm{MH}_{k, l}^{(s, t)}` for some indexing set :math:`I\subseteq (V\times V) \times \mathbb{N}`.
+/// The range of the homological degree :math:`k` varies depending on the last call to |populate_paths| before each summand was created.
+/// If the range varies amongst the summands, we restrict to the smallest common sub-range.
+///
+/// :param edges: The list of summands to enter into the direct sum. Defaults to the empty sum.
+/// :type edges: list[StlHomology], optional
 #[pyclass(name = "DirectSum")]
 struct PyDirectSum(
     DirectSum<
@@ -325,17 +342,32 @@ impl PyDirectSum {
         ds
     }
 
+    /// Retrieves the ranks of the homology groups.
+    ///
+    /// :return: A dictionary where ``output[k]`` stores the rank :math:`\operatorname{rank}(\oplus_{((s, t), l)\in I}\mathrm{MH}_{k, l}^{(s, t)})`.
+    /// :rtype: dict[usize, usize]
     #[getter]
     fn get_ranks(&self) -> HashMap<usize, usize> {
         self.0.ranks()
     }
 
+    /// Retrieves a (non-unique) set of representatives for the homology groups.
+    /// Each representative is a :math:`\mathbb{Z}_2`-linear combination of paths (i.e. a set of paths) and is thus represented by a ``list[list[usize]]`` where each inner ``list[usize]`` represents a path.
+    ///
+    /// :return: A dictionary where ``output[k]`` stores a list of representatives for :math:`\oplus_{((s, t), l)\in I}\mathrm{MH}_{k, l}^{\mathcal{P}}` with ``len(output[k])`` :math:`=\operatorname{rank}(\oplus_{((s, t), l)\in I}\mathrm{MH}_{k, l}^{\mathcal{P}})`.
+    /// :rtype: dict[usize, list[list[list[usize]]]]
+    /// :raise TypeError: If this homology was computed with ``representatives = False`` then an error is raised.
     #[getter]
     fn get_representatives(&self) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
         Ok(convert_representatives(self.0.representatives()?))
     }
 
-    // Returns whether it replaced an old summand
+    /// Adds another summand to the direct sum, mutating the original sum.
+    ///
+    /// :param summand: The summand to be added to the sum
+    /// :type summand: StlHomology
+    /// :returns: Whether a summand with the same :math:`((s, t), l)`-index already existed in the sum and was just replaced by this summand.
+    /// :rtype: bool
     fn add(&mut self, summand: &PyStlHomology) -> bool {
         let stl_key = (summand.0.stl_paths.node_pair, summand.0.stl_paths.l);
         let hom = Arc::clone(&summand.0);
@@ -346,16 +378,28 @@ impl PyDirectSum {
 /// Formats a table of numbers, such as those outputted by |rank_homology|_ or |rank_generators|_.
 ///
 /// :param table: The table to format.
-/// :type table: List[List[Int]]
+/// :type table: list[list[Int]]
+/// :param above_diagonal: The string to display for the ranks of all groups above the diagonal (which are necessarily 0). Defaults to the empty string.
+/// :type above_diagonal: str, optional
+/// :param unknown: The string to disply when the rank of a group is unknown. Defaults to ``"?"``.
+/// :type unknown: str, optional
+/// :param zero: The string to disply when the rank of a group is zero. Defaults to ``"."``.
+/// :type zero: str, optional
 /// :return: The formatted table.
-/// :rtype: String
+/// :rtype: str
 #[pyfunction]
-fn format_table(table: Vec<Vec<usize>>) -> PyResult<String> {
-    Ok(rank_table(table))
+fn format_rank_table(
+    table: Vec<Vec<usize>>,
+    above_diagonal: Option<String>,
+    unknown: Option<String>,
+    zero: Option<String>,
+) -> PyResult<String> {
+    let options = (above_diagonal, unknown, zero).into();
+    Ok(utils::format_rank_table(table, options))
 }
 
 /// :return: The current version of ``gramag``.
-/// :rtype: String
+/// :rtype: str
 #[pyfunction]
 fn version() -> String {
     format!("{}", env!("CARGO_PKG_VERSION"))
@@ -384,7 +428,7 @@ fn version() -> String {
 /// .. _l_homology: #gramag.MagGraph.l_homology
 #[pymodule]
 fn gramag(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(format_table, m)?)?;
+    m.add_function(wrap_pyfunction!(format_rank_table, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_class::<MagGraph>()?;
     m.add_class::<PyStlHomology>()?;

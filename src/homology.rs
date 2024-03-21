@@ -227,7 +227,7 @@ where
             })
             .collect();
 
-        for dim in 0..self.stl_paths.max_homology_dim() {
+        for dim in 0..=self.stl_paths.max_homology_dim() {
             // Dimension 0 => no reps
             reps_map.entry(dim).or_insert_with(Vec::new);
         }
@@ -263,6 +263,7 @@ where
         }
     }
 
+    // TODO: If any summand doesn't have a given k then we shouldn't report!
     pub fn ranks(&self) -> HashMap<usize, usize> {
         let mut ranks = HashMap::new();
         for stl_hom in self.summands.values() {
@@ -273,7 +274,8 @@ where
         ranks
     }
 
-    // Returns None if any of the summands does not have reps
+    // TODO: If any summand doesn't have a given k then we shouldn't report!
+    // Returns Err if any of the summands does not have reps
     pub fn representatives(&self) -> Result<HashMap<usize, Vec<Representative<NodeId>>>, MagError> {
         let mut reps: HashMap<usize, Vec<Vec<Path<NodeId>>>> = HashMap::new();
         for stl_hom in self.summands.values() {
