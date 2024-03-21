@@ -5,6 +5,7 @@
 <b>Gra</b>ph <b>Mag</b>nitude Homology in Rust, with Python bindings
 
 [![PyPi](https://img.shields.io/pypi/v/gramag)](https://pypi.org/project/gramag/)
+[![Read The Docs](https://readthedocs.org/projects/gramag/badge/?version=latest)](https://gramag.readthedocs.io/en/latest/?badge=latest)
 
 </div>
 
@@ -38,6 +39,11 @@ pip install gramag
 
 ### Usage
 
+Full documentation is available on [Read The Docs](https://gramag.readthedocs.io) or can be built from source by calling
+```bash
+just setup_venv
+just py_docs_open
+```
 A simple example script is provided in [`simple.py`](docs/source/examples/simple.py).
 ```python
 from gramag import MagGraph, format_rank_table
@@ -118,7 +124,6 @@ Representatives for MH_{2, 4}:
 ```
 
 For more detailed usage, please refer to [`advanced.py`](docs/source/examples/advanced.py).
-Documentation of the Python API is forthcoming.
 
 ## Rust
 
