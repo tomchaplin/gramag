@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 
 use crate::{
     distances::{parallel_all_pairs_distance, DistanceMatrix},
-    homology::{all_homology_ranks_default, DirectSum, StlHomology},
+    homology::{all_homology_ranks_default, path_homology_basis, DirectSum, StlHomology},
     path_search::{PathContainer, PathQuery, StlPathContainer, StoppingCondition},
     utils, MagError, Path, Representative,
 };
@@ -259,6 +259,16 @@ impl MagGraph {
 
         Ok(PyDirectSum(DirectSum::new(stl_homologies)))
     }
+
+    fn path_homology_groups(&self) -> HashMap<usize, Vec<Representative<u32>>> {
+        let path_container = self.path_container.as_ref().unwrap();
+        let k_max = path_container.k_max;
+        let bases: HashMap<_, _> = (0..=k_max)
+            .map(|k| (k, path_homology_basis(&self.digraph, path_container, k)))
+            .collect();
+
+        convert_representatives(bases)
+    }
 }
 
 /// ``StlHomology`` objects represent the homology groups :math:`\mathrm{MH}_{k, l}^{(s, t)}` for some fixed node pair :math:`(s, t)\in V \times V` and a fixed length :math:`l`.
@@ -275,18 +285,18 @@ struct PyStlHomology(
     >,
 );
 
+fn convert_all_reps(reps: Vec<Vec<Path<NodeIndex<u32>>>>) -> Vec<Vec<Path<u32>>> {
+    let convert_path_to_u32 =
+        |path: Path<NodeIndex<u32>>| path.into_iter().map(|node| node.index() as u32).collect();
+    reps.into_iter()
+        .map(|rep| rep.into_iter().map(convert_path_to_u32).collect())
+        .collect()
+}
+
 // This is awful and I hate it
 fn convert_representatives(
     reps: HashMap<usize, Vec<Vec<Path<NodeIndex<u32>>>>>,
 ) -> HashMap<usize, Vec<Vec<Path<u32>>>> {
-    let convert_path_to_u32 =
-        |path: Path<NodeIndex<u32>>| path.into_iter().map(|node| node.index() as u32).collect();
-
-    let convert_all_reps = |reps: Vec<Vec<Path<NodeIndex<u32>>>>| {
-        reps.into_iter()
-            .map(|rep| rep.into_iter().map(convert_path_to_u32).collect())
-            .collect()
-    };
     reps.into_iter()
         .map(|(dim, reps)| (dim, convert_all_reps(reps)))
         .collect()

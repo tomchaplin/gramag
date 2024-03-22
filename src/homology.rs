@@ -3,10 +3,12 @@
 use std::{collections::HashMap, marker::PhantomData, ops::Deref, sync::Arc};
 
 use lophat::{
-    algorithms::{Decomposition, DecompositionAlgo},
-    columns::Column,
+    algorithms::{Decomposition, DecompositionAlgo, SerialAlgorithm},
+    columns::{Column, VecColumn},
+    options::LoPhatOptions,
 };
 
+use petgraph::visit::{GraphRef, IntoNodeIdentifiers};
 use rustc_hash::FxHashMap;
 
 use rayon::prelude::*;
@@ -79,6 +81,64 @@ where
     c: PhantomData<C>,
 }
 
+// Takes the k paths from the provided stl container
+// and adds columns corresponding to each k_path
+fn append_k_paths<Ref, NodeId, C, Algo>(
+    stl_paths: &StlPathContainer<Ref, NodeId>,
+    mut algo: Algo,
+    k: usize,
+    k_offset: usize,
+    k_minus_1_offset: usize,
+) -> Algo
+where
+    NodeId: SensibleNode,
+    Ref: Deref<Target = PathContainer<NodeId>>,
+    C: Column,
+    Algo: DecompositionAlgo<C>,
+{
+    // Add empty columns for each k path
+    let number_of_k_paths = stl_paths.num_paths(k);
+    algo = algo.add_cols((0..number_of_k_paths).map(|_i| C::new_with_dimension(k)));
+
+    // Extract all the k paths from the container
+    let k_paths = stl_paths
+        .parent_container
+        .paths
+        .get(&stl_paths.key_from_k(k));
+    let Some(k_paths) = k_paths else { return algo };
+
+    // Loop through all k-paths
+    for entry in k_paths.value() {
+        // Get path and its index in the chain complex
+        let path = entry.key();
+        let idx = entry.value();
+
+        // Only test removing interior vertices
+        let entries = (1..k)
+            .filter(|&i| {
+                // Path without vertex i appears in boundary
+                // iff removing doesn't change length
+                let a = path[i - 1];
+                let mid = path[i];
+                let b = path[i + 1];
+                let d = &stl_paths.parent_container.d;
+                d.distance(&a, &mid) + d.distance(&mid, &b) == d.distance(&a, &b)
+            })
+            .map(|i| {
+                // Get index of path with i^th vertex removed
+                let mut bdry_path = path.clone();
+                bdry_path.remove(i);
+                let bdry_path_idx = stl_paths
+                    .index_of(&bdry_path)
+                    .expect("Should have found this boundary and inserted with correct key");
+                // Add entry to boundary matrix, using appropriate offsets
+                (bdry_path_idx + k_minus_1_offset, idx + k_offset)
+            });
+        algo = algo.add_entries(entries);
+    }
+    algo
+}
+
 // TODO: Add option to anti-transpose?
 // TODO: Any way to associate this as a method of StlHomology?
 pub(crate) fn build_stl_homology<Ref, NodeId, C, Algo>(
@@ -95,56 +155,18 @@ where
     let mut algo = Algo::init(options);
     let k_max = stl_paths.parent_container.k_max;
     let sizes: Vec<_> = stl_paths.chain_group_sizes(k_max).collect();
-    let empty_cols =
-        (0..=k_max).flat_map(|k| (0..sizes[k]).map(move |_i| C::new_with_dimension(k)));
-    algo = algo.add_cols(empty_cols);
 
     // Loop through each homological dimension (k)
     for k in 0..=k_max {
-        // k= 0 => no boundary
-        if k == 0 {
-            continue;
-        }
-
         // Setup offsets for k-paths and (k-1)-paths
+        // For k=0, we have to manually override k_minus_1_offset
         let k_offset: usize = sizes[0..k].iter().sum();
-        let k_minus_1_offset: usize = sizes[0..(k - 1)].iter().sum();
-        let k_paths = stl_paths
-            .parent_container
-            .paths
-            .get(&stl_paths.key_from_k(k));
-        let Some(k_paths) = k_paths else { continue };
-
-        // Loop through all k-paths
-        for entry in k_paths.value() {
-            // Get path and its index in the chain complex
-            let path = entry.key();
-            let idx = entry.value();
-
-            // Only test removing interior vertices
-            let entries = (1..k)
-                .filter(|&i| {
-                    // Path without vertex i appears in boundary
-                    // iff removing doesn't change length
-                    let a = path[i - 1];
-                    let mid = path[i];
-                    let b = path[i + 1];
-                    let d = &stl_paths.parent_container.d;
-                    d.distance(&a, &mid) + d.distance(&mid, &b) == d.distance(&a, &b)
-                })
-                .map(|i| {
-                    // Get index of path with i^th vertex removed
-                    let mut bdry_path = path.clone();
-                    bdry_path.remove(i);
-                    // Could be slow
-                    let bdry_path_idx = stl_paths
-                        .index_of(&bdry_path)
-                        .expect("Should have found this boundary and inserted with correct key");
-                    // Add entry to boundary matrix, using appropriate offsets
-                    (bdry_path_idx + k_minus_1_offset, idx + k_offset)
-                });
-            algo = algo.add_entries(entries);
-        }
+        let k_minus_1_offset: usize = if k == 0 {
+            0
+        } else {
+            sizes[0..(k - 1)].iter().sum()
+        };
+        algo = append_k_paths(&stl_paths, algo, k, k_offset, k_minus_1_offset)
     }
 
     // Run the algorithm
@@ -187,20 +209,14 @@ where
         rank_map
     }
 
-    /// This might be quite slow because [`path_at_index`](StlPathContainer::path_at_index) can be slow if there are lots of paths with the same key
-    pub fn representatives(&self) -> Result<HashMap<usize, Vec<Representative<NodeId>>>, MagError> {
-        if !self.decomposition.has_v() {
-            return Err(MagError::NoRepresentatives);
-        }
+    fn collect_rep(&self, k: usize, rep_idx: usize) -> Representative<NodeId> {
+        let dim_offset: usize = if k == 0 {
+            0
+        } else {
+            self.stl_paths.chain_group_sizes(k - 1).sum()
+        };
 
-        let collect_rep = |k, rep_idx| {
-            let dim_offset: usize = if k == 0 {
-                0
-            } else {
-                self.stl_paths.chain_group_sizes(k - 1).sum()
-            };
-
-            self.decomposition
+        self.decomposition
                 // Get the V column
                 .get_v_col(rep_idx)
                 .expect("Should have v_col because decomposition has_v")
@@ -213,7 +229,13 @@ where
                         .expect("v_col should be a sum of (s,t,k,l) paths which should all be in the StlPathContainer")
                 })
                 .collect()
-        };
+    }
+
+    /// This might be quite slow because [`path_at_index`](StlPathContainer::path_at_index) can be slow if there are lots of paths with the same key
+    pub fn representatives(&self) -> Result<HashMap<usize, Vec<Representative<NodeId>>>, MagError> {
+        if !self.decomposition.has_v() {
+            return Err(MagError::NoRepresentatives);
+        }
 
         let mut reps_map: HashMap<_, _> = self
             .homology_idxs
@@ -223,7 +245,7 @@ where
                     k,
                     rep_idxs
                         .iter()
-                        .map(|&rep_idx| collect_rep(k, rep_idx))
+                        .map(|&rep_idx| self.collect_rep(k, rep_idx))
                         .collect(),
                 )
             })
@@ -326,16 +348,89 @@ where
     }
 }
 
-fn path_homology<NodeId>(path_container: &PathContainer<NodeId>)
+// Compute a basis for MH_{k, k}^{(s, t)}
+// Since the boundary space is empty, each homology element has a unique representative!
+// We just return a list of representatives (each rep is a set of k-paths)
+pub fn mhkk_st_basis<NodeId>(
+    path_container: &PathContainer<NodeId>,
+    k: usize,
+    node_pair: (NodeId, NodeId),
+) -> Vec<Representative<NodeId>>
 where
     NodeId: SensibleNode,
 {
-    // Step 1: Compute a basis for each MH_{k, k}
+    let mut options: LoPhatOptions = Default::default();
+    options.maintain_v = true;
+
+    // Setup algorithm to receive entries
+    let mut algo = SerialAlgorithm::<VecColumn>::init(Some(options));
+
+    let stk_paths = path_container.stl(node_pair, k);
+    algo = append_k_paths(&stk_paths, algo, k, 0, 0);
+
+    let decomposition = algo.decompose();
+
+    // Note: Can't use homology_idxs because the matrix represented in algo is NOT a chain complex
+    // Instead we just look at cycle columns
+
+    let get_rep = |col_idx| {
+        decomposition
+            .get_v_col(col_idx)
+            .expect("Should have v_col because decomposition has_v")
+            .entries()
+            .map( |cc_idx| {
+                stk_paths
+                    .path_at_index(k, cc_idx)
+                    .expect("v_col should be a sum of (s,t,k,l) paths which should all be in the StlPathContainer")
+            })
+            .collect::<Vec<_>>()
+    };
+
+    (0..decomposition.n_cols())
+        .filter_map(|col_idx| {
+            if decomposition.get_r_col(col_idx).is_cycle() {
+                Some(get_rep(col_idx))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+pub fn path_homology_basis<G>(
+    graph: G,
+    path_container: &PathContainer<G::NodeId>,
+    k: usize,
+) -> Vec<Representative<G::NodeId>>
+where
+    G: GraphRef + IntoNodeIdentifiers,
+    G::NodeId: SensibleNode + Sync + Send,
+{
+    let node_pairs: Vec<_> = graph
+        .node_identifiers()
+        .flat_map(|s| graph.node_identifiers().map(move |t| (s, t)))
+        .collect();
+
+    node_pairs
+        .into_par_iter()
+        .map(|node_pair| mhkk_st_basis(&path_container, k, node_pair))
+        .reduce(
+            || vec![],
+            |mut a, b| {
+                a.extend(b);
+                a
+            },
+        )
+}
+
+pub fn path_homology<NodeId>(_path_container: &PathContainer<NodeId>)
+where
+    NodeId: SensibleNode,
+{
+    // Step 1: Compute a basis for each MH_{k, k} (Maybe do in parallel over k, s, t?)
     // Step 2: Setup the index lookup hashmaps
     // Step 3: Construct the path chain complex
     // Step 4: Decompose
     // Step 5: Compute homology idxs
     // Step 6: Provide representatives?
-
-    let k_max = path_container.k_max;
 }

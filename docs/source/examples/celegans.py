@@ -12,6 +12,7 @@ import numpy as np
 from pathlib import Path
 
 from gramag import MagGraph, format_rank_table
+import time
 
 print("=== CELEGANS ===")
 
@@ -46,15 +47,25 @@ G = nx.convert_node_labels_to_integers(G, label_attribute="Neuron")
 print("Built digraph")
 
 mg = MagGraph(G.edges)
-l_max = 2
+l_max = 4
 mg.populate_paths(l_max=l_max)
 print(f"Populated paths up to l={l_max}")
 rk_hom = mg.rank_homology()
 print(format_rank_table(rk_hom))
+rk_gen = mg.rank_generators()
+print(format_rank_table(rk_gen))
 
-omega_0 = mg.l_homology(0, representatives=True)
-print("Got Ω_0")
-omega_1 = mg.l_homology(1, representatives=True)
-print("Got Ω_1")
-omega_2 = mg.l_homology(2, representatives=True)
-print("Got Ω_2")
+tic = time.time()
+for dim in range(l_max+1):
+    omega = mg.l_homology(l_max, representatives=True)
+    print(f"Got Ω_{dim}")
+toc = time.time()
+print(toc - tic)
+
+tic = time.time()
+ph_groups = mg.path_homology_groups()
+for dim in range(l_max+1):
+    grp = ph_groups[dim]
+    print((dim, len(grp) ))
+toc = time.time()
+print(toc - tic)

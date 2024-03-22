@@ -5,13 +5,13 @@ from gramag import MagGraph, format_rank_table
 # 1. Nodes are labelled by integers
 # 2. Edges are provided as a list of tuples of vertices
 # 3. Isolated vertices are not supported at the moment
-N = 7
+N = 15
 mg = MagGraph(
     [(i, (i + 1) % N) for i in range(N)] + [((i + 1) % N, i) for i in range(N)]
 )
 
 # Compute generators of all MC^{(s, t)}_{k, l} for l<=6
-mg.populate_paths(l_max=11)
+mg.populate_paths(l_max=13)
 
 # Reports the ranks of MC^{(s, t)}_{k, l}, summed over (s, t)
 rk_gens = mg.rank_generators()
