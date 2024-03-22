@@ -100,6 +100,11 @@ where
     let number_of_k_paths = stl_paths.num_paths(k);
     algo = algo.add_cols((0..number_of_k_paths).map(|_i| C::new_with_dimension(k)));
 
+    // k=0 => no boundary
+    if k == 0 {
+        return algo;
+    }
+
     // Extract all the k paths from the container
     let k_paths = stl_paths
         .parent_container
