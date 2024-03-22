@@ -214,6 +214,7 @@ where
             .collect()
     }
 
+    // TODO: Maybe compute this along the way with an AtomicUsize?
     pub fn max_found_l(&self) -> usize {
         self.paths
             .iter()

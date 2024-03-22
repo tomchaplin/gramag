@@ -10,6 +10,7 @@ pub mod utils;
 // 1. Test
 // 2. Document
 // 3. Benchmark
+// 4. Serde + pickle integration
 
 #[cfg_attr(feautre = "python", pyclass)]
 #[derive(Debug)]

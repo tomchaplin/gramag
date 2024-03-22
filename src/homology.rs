@@ -1,3 +1,5 @@
+// TODO: Add a way to compute path homology
+
 use std::{collections::HashMap, marker::PhantomData, ops::Deref, sync::Arc};
 
 use lophat::{
@@ -322,4 +324,18 @@ where
     ) -> Option<Arc<StlHomology<Ref, NodeId, C, Decomp>>> {
         self.summands.insert(key, hom)
     }
+}
+
+fn path_homology<NodeId>(path_container: &PathContainer<NodeId>)
+where
+    NodeId: SensibleNode,
+{
+    // Step 1: Compute a basis for each MH_{k, k}
+    // Step 2: Setup the index lookup hashmaps
+    // Step 3: Construct the path chain complex
+    // Step 4: Decompose
+    // Step 5: Compute homology idxs
+    // Step 6: Provide representatives?
+
+    let k_max = path_container.k_max;
 }
