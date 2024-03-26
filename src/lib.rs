@@ -10,6 +10,7 @@ pub mod utils;
 // 1. Test
 // 2. Document
 // 3. Benchmark
+// 4. Deal with the no-edges case!
 
 #[cfg_attr(feautre = "python", pyclass)]
 #[derive(Debug)]

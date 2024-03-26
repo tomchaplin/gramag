@@ -159,11 +159,14 @@ impl MagGraph {
         &mut self,
         k_max: Option<usize>,
         l_max: Option<usize>,
+        py: Python<'_>,
     ) -> Result<(), MagError> {
-        let query = self.build_query(k_max, l_max)?;
-        let path_container = query.run();
-        self.path_container = Some(Arc::new(path_container));
-        Ok(())
+        py.allow_threads(|| {
+            let query = self.build_query(k_max, l_max)?;
+            let path_container = query.run();
+            self.path_container = Some(Arc::new(path_container));
+            Ok(())
+        })
     }
 
     /// Computes all possible magnitude chain group ranks :math:`\operatorname{rank}(\mathrm{MC}_{k, l}^\mathcal{P})`, summed over a list of node pairs :math:`\mathcal{P}`.
@@ -172,13 +175,19 @@ impl MagGraph {
     /// :type node_pairs: list[tuple[int, int]], optional
     /// :return: The ranks of the known chain groups groups, where :math:`\operatorname{rank}(\mathrm{MC}_{k,l}^\mathcal{P})` is stored in ``output[l][k]``.
     /// :rtype: list[list[int]]
-    fn rank_generators(&self, node_pairs: Option<Vec<(u32, u32)>>) -> Vec<Vec<usize>> {
-        let node_pairs = self.process_node_pairs_options(node_pairs);
-        if let Some(container) = self.path_container.as_ref() {
-            container.rank_matrix(|| node_pairs.iter().copied())
-        } else {
-            vec![]
-        }
+    fn rank_generators(
+        &self,
+        node_pairs: Option<Vec<(u32, u32)>>,
+        py: Python<'_>,
+    ) -> Vec<Vec<usize>> {
+        py.allow_threads(|| {
+            let node_pairs = self.process_node_pairs_options(node_pairs);
+            if let Some(container) = self.path_container.as_ref() {
+                container.rank_matrix(|| node_pairs.iter().copied())
+            } else {
+                vec![]
+            }
+        })
     }
 
     /// Computes all possible magnitude homology ranks :math:`\operatorname{rank}(\mathrm{MH}_{k, l}^\mathcal{P})`, summed over a list of node pairs :math:`\mathcal{P}`.
@@ -188,12 +197,18 @@ impl MagGraph {
     /// :type node_pairs: list[tuple[int, int]], optional
     /// :return: The ranks of the known homology groups, where :math:`\operatorname{rank}(\mathrm{MH}_{k,l}^\mathcal{P})` is stored in ``output[l][k]``.
     /// :rtype: list[List[int]]
-    fn rank_homology(&self, node_pairs: Option<Vec<(u32, u32)>>) -> Vec<Vec<usize>> {
-        if let Some(container) = self.path_container.as_ref() {
-            all_homology_ranks_default(container, &self.process_node_pairs_options(node_pairs))
-        } else {
-            vec![]
-        }
+    fn rank_homology(
+        &self,
+        node_pairs: Option<Vec<(u32, u32)>>,
+        py: Python<'_>,
+    ) -> Vec<Vec<usize>> {
+        py.allow_threads(|| {
+            if let Some(container) = self.path_container.as_ref() {
+                all_homology_ranks_default(container, &self.process_node_pairs_options(node_pairs))
+            } else {
+                vec![]
+            }
+        })
     }
 
     /// Computes magnitude homology :math:`\mathrm{MH}_{k, l}^{(s, t)}` for a fixed node pair :math:`(s, t)`, a fixed length :math:`l` and all possible homological degrees :math:`k`.
@@ -212,17 +227,20 @@ impl MagGraph {
         node_pair: (u32, u32),
         l: usize,
         representatives: Option<bool>,
+        py: Python<'_>,
     ) -> Result<PyStlHomology, MagError> {
-        let (s, t) = node_pair;
-        self.check_l(l)?;
+        py.allow_threads(|| {
+            let (s, t) = node_pair;
+            self.check_l(l)?;
 
-        let homology = self.inner_compute_stl_homology(
-            (NodeIndex::from(s), NodeIndex::from(t)),
-            l,
-            representatives.unwrap_or(false),
-        );
+            let homology = self.inner_compute_stl_homology(
+                (NodeIndex::from(s), NodeIndex::from(t)),
+                l,
+                representatives.unwrap_or(false),
+            );
 
-        Ok(PyStlHomology(Arc::new(homology)))
+            Ok(PyStlHomology(Arc::new(homology)))
+        })
     }
 
     /// Computes magnitude homology :math:`\mathrm{MH}_{k, l}^{\mathcal{P}}` for a fixed length :math:`l` and all possible homological degrees :math:`k`, summed over a list of node pairs :math:`\mathcal{P}`.
@@ -242,22 +260,25 @@ impl MagGraph {
         l: usize,
         representatives: Option<bool>,
         node_pairs: Option<Vec<(u32, u32)>>,
+        py: Python<'_>,
     ) -> Result<PyDirectSum, MagError> {
-        self.check_l(l)?;
-        let representatives = representatives.unwrap_or(false);
-        let stl_homologies = self
-            .process_node_pairs_options(node_pairs)
-            .into_par_iter()
-            .map(|node_pair| {
-                (
-                    (node_pair, l),
-                    Arc::new(self.inner_compute_stl_homology(node_pair, l, representatives)),
-                )
-            })
-            .collect::<Vec<_>>()
-            .into_iter();
+        py.allow_threads(|| {
+            self.check_l(l)?;
+            let representatives = representatives.unwrap_or(false);
+            let stl_homologies = self
+                .process_node_pairs_options(node_pairs)
+                .into_par_iter()
+                .map(|node_pair| {
+                    (
+                        (node_pair, l),
+                        Arc::new(self.inner_compute_stl_homology(node_pair, l, representatives)),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into_iter();
 
-        Ok(PyDirectSum(DirectSum::new(stl_homologies)))
+            Ok(PyDirectSum(DirectSum::new(stl_homologies)))
+        })
     }
 }
 
@@ -310,8 +331,11 @@ impl PyStlHomology {
     /// :rtype: dict[usize, list[list[list[usize]]]]
     /// :raise TypeError: If this homology was computed with ``representatives = False`` then an error is raised.
     #[getter]
-    fn get_representatives(&self) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
-        Ok(convert_representatives(self.0.representatives()?))
+    fn get_representatives(
+        &self,
+        py: Python<'_>,
+    ) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
+        py.allow_threads(|| Ok(convert_representatives(self.0.representatives()?)))
     }
 }
 
@@ -358,8 +382,11 @@ impl PyDirectSum {
     /// :rtype: dict[usize, list[list[list[usize]]]]
     /// :raise TypeError: If this homology was computed with ``representatives = False`` then an error is raised.
     #[getter]
-    fn get_representatives(&self) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
-        Ok(convert_representatives(self.0.representatives()?))
+    fn get_representatives(
+        &self,
+        py: Python<'_>,
+    ) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
+        py.allow_threads(|| Ok(convert_representatives(self.0.representatives()?)))
     }
 
     /// Adds another summand to the direct sum, mutating the original sum.
