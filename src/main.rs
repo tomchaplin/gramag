@@ -66,7 +66,7 @@ fn main() {
         assert_eq!(phlite_count, old_count);
     }
 
-    let stl_phlite_bdry = phlite_container.stl_magnitude_boundary::<Z2, _>(
+    let stl_phlite_bdry = phlite_container.stl_magnitude_coboundary::<Z2, _>(
         (NodeIndex::from(0), NodeIndex::from(5)),
         3,
         0..=3,
@@ -74,7 +74,7 @@ fn main() {
 
     let (v, diagram) = ClearedReductionMatrix::build_with_diagram(
         stl_phlite_bdry.with_trivial_filtration(),
-        (0..=3).rev(),
+        0..=3,
     );
 
     println!("{:?}", diagram);

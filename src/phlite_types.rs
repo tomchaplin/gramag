@@ -1,4 +1,4 @@
-use std::{collections::HashMap, marker::PhantomData, ops::Deref, sync::Arc};
+use std::{collections::HashMap, iter, marker::PhantomData, ops::Deref, sync::Arc};
 
 use petgraph::graph::NodeIndex;
 use phlite::{
@@ -117,6 +117,90 @@ where
 
 // TODO: Implement MagnitudeCoboundary
 
+pub struct MagnitudeCoboundary<'a, CF>
+where
+    CF: NonZeroCoefficient,
+{
+    d: &'a DistanceMatrix<NodeIndex>,
+    n_nodes: usize,
+    phantom: PhantomData<CF>,
+}
+
+impl<'a, CF> MagnitudeCoboundary<'a, CF>
+where
+    CF: NonZeroCoefficient,
+{
+    pub fn new(n_nodes: usize, d: &'a DistanceMatrix<NodeIndex>) -> Self {
+        Self {
+            d,
+            n_nodes,
+            phantom: PhantomData,
+        }
+    }
+}
+impl<'a, CF> MatrixOracle for MagnitudeCoboundary<'a, CF>
+where
+    CF: NonZeroCoefficient,
+{
+    type CoefficientField = CF;
+
+    type ColT = PathIndex;
+
+    type RowT = PathIndex;
+
+    fn column(
+        &self,
+        col: Self::ColT,
+    ) -> Result<impl Iterator<Item = (Self::CoefficientField, Self::RowT)>, phlite::PhliteError>
+    {
+        // TODO: Add check - if k == l then we know coboundary is 0!
+        let path = col.to_vec(self.n_nodes);
+        let k = path.len() - 1;
+        Ok((1..=k)
+            .flat_map(|i| (0..self.n_nodes).map(move |v| (i, v)))
+            .filter_map(move |(insertion_position, v)| {
+                // Check that vertex is distinct from surrounding
+                let a = path[insertion_position - 1];
+                let b = path[insertion_position];
+                if a == v {
+                    return None;
+                }
+                if b == v {
+                    return None;
+                }
+
+                // Check whether inserting v at insertion_position changes length
+                // TODO: Figure out how to get rid of (as u32)
+                let node_a = NodeIndex::from(a as u32);
+                let node_b = NodeIndex::from(b as u32);
+                let node_v = NodeIndex::from(v as u32);
+                if self.d.distance(&node_a, &node_v) + self.d.distance(&node_v, &node_b)
+                    != self.d.distance(&node_a, &node_b)
+                {
+                    return None;
+                }
+
+                // Determine parity
+                let parity = if insertion_position % 2 == 0 {
+                    CF::one()
+                } else {
+                    CF::one().additive_inverse()
+                };
+
+                // Construct path index of new path
+                let (vertices_prior, vertices_after) = path.split_at(insertion_position);
+                let new_path = vertices_prior
+                    .iter()
+                    .chain(iter::once(&v))
+                    .chain(vertices_after.iter())
+                    .copied();
+                let new_path_index = PathIndex::from_indices(new_path, self.n_nodes).unwrap();
+
+                Some((parity, new_path_index))
+            }))
+    }
+}
+
 pub struct MagnitudeBasis<'a, R>
 where
     R: IntoIterator<Item = usize> + Clone,
@@ -218,6 +302,41 @@ impl PhlitePathContainer<NodeIndex> {
     ) -> MatrixWithBasis<MagnitudeBoundary<'_, CF>, MagnitudeBasis<'_, R>> {
         MatrixWithBasis {
             matrix: self.magnitude_bounday(),
+            basis: MagnitudeBasis {
+                paths: &self.paths,
+                node_pair,
+                l,
+                k_range,
+                empty_basis: vec![],
+            },
+        }
+    }
+
+    pub fn magnitude_cobounday<CF: NonZeroCoefficient>(&self) -> MagnitudeCoboundary<'_, CF> {
+        MagnitudeCoboundary::new(self.n_nodes, self.d.deref())
+    }
+
+    pub fn stkl_magnitude_coboundary<CF: NonZeroCoefficient>(
+        &self,
+        stkl: &PathKey<NodeIndex>,
+    ) -> MatrixWithBasis<MagnitudeCoboundary<'_, CF>, &Vec<PathIndex>> {
+        MatrixWithBasis {
+            matrix: self.magnitude_cobounday(),
+            basis: self.paths.get(stkl).unwrap(),
+        }
+    }
+
+    pub fn stl_magnitude_coboundary<
+        CF: NonZeroCoefficient,
+        R: IntoIterator<Item = usize> + Clone,
+    >(
+        &self,
+        node_pair: (NodeIndex, NodeIndex),
+        l: usize,
+        k_range: R,
+    ) -> MatrixWithBasis<MagnitudeCoboundary<'_, CF>, MagnitudeBasis<'_, R>> {
+        MatrixWithBasis {
+            matrix: self.magnitude_cobounday(),
             basis: MagnitudeBasis {
                 paths: &self.paths,
                 node_pair,
