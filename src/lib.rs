@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 pub mod distances;
 pub mod homology;
 pub mod path_search;
+pub mod phlite_types;
 pub mod utils;
 
 // TODO:

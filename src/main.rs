@@ -1,9 +1,16 @@
 use petgraph::{graph::NodeIndex, visit::IntoNodeIdentifiers, Graph};
+use phlite::{
+    fields::Z2,
+    matrices::{MatrixOracle, MatrixRef},
+    reduction::ClearedReductionMatrix,
+};
 use std::sync::Arc;
 
 use gramag::{
-    distances::parallel_all_pairs_distance, homology::all_homology_ranks_default,
-    path_search::PathQuery, utils::format_rank_table,
+    distances::parallel_all_pairs_distance,
+    homology::all_homology_ranks_default,
+    path_search::{PathQuery, StoppingCondition},
+    utils::format_rank_table,
 };
 
 fn main() {
@@ -17,7 +24,7 @@ fn main() {
     let path_query = PathQuery::build(
         &graph,
         distance_matrix.clone(),
-        gramag::path_search::StoppingCondition::LMax(l_max),
+        StoppingCondition::LMax(l_max),
     );
     let container = path_query.run();
 
@@ -48,6 +55,38 @@ fn main() {
         .stl((NodeIndex::from(0), NodeIndex::from(5)), 3)
         .serial_homology(true)
         .representatives()
-        .expect("Shoudl have reps because we passed true to serial_homology");
+        .expect("Should have reps because we passed true to serial_homology");
+
     println!("{:#?}", reps);
+
+    let phlite_container = path_query.run_phlite();
+    for (key, value) in phlite_container.paths.iter() {
+        let phlite_count = value.len();
+        let old_count = container.paths.get(key).unwrap().len();
+        assert_eq!(phlite_count, old_count);
+    }
+
+    let stl_phlite_bdry = phlite_container.stl_magnitude_boundary::<Z2, _>(
+        (NodeIndex::from(0), NodeIndex::from(5)),
+        3,
+        0..=3,
+    );
+
+    let (v, diagram) = ClearedReductionMatrix::build_with_diagram(
+        stl_phlite_bdry.with_trivial_filtration(),
+        (0..=3).rev(),
+    );
+
+    println!("{:?}", diagram);
+
+    println!("Essential");
+    let n_nodes = graph.node_count();
+    for idx in diagram.essential.iter() {
+        let rep: Vec<_> = v
+            .column(*idx)
+            .unwrap()
+            .map(|(coeff, path)| (coeff, path.to_vec(n_nodes)))
+            .collect();
+        println!("{:?}", rep);
+    }
 }

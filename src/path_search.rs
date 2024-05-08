@@ -1,12 +1,14 @@
 use crate::distances::{Distance, DistanceMatrix};
 use crate::homology::{build_stl_homology, StlHomology};
+use crate::phlite_types::{PathIndex, PhlitePathContainer};
 use crate::Path;
 
 use core::hash::Hash;
+use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
 use lophat::algorithms::{DecompositionAlgo, SerialAlgorithm, SerialDecomposition};
@@ -14,7 +16,8 @@ use lophat::columns::{Column, VecColumn};
 use lophat::options::LoPhatOptions;
 use par_dfs::sync::par::IntoParallelIterator;
 use par_dfs::sync::{FastBfs, FastNode};
-use petgraph::visit::{GraphBase, GraphRef, IntoEdges, IntoNodeIdentifiers, Visitable};
+use petgraph::graph::NodeIndex;
+use petgraph::visit::{GraphBase, GraphRef, IntoEdges, IntoNodeIdentifiers, NodeCount, Visitable};
 use rayon::prelude::{ParallelBridge, ParallelIterator};
 
 pub trait SensibleNode: Debug + Eq + Hash + Clone + Copy {}
@@ -82,7 +85,7 @@ where
 
 impl<G> PathQuery<G>
 where
-    G: IntoEdges + Visitable + IntoNodeIdentifiers + Sync + Send,
+    G: IntoEdges + Visitable + IntoNodeIdentifiers + Sync + Send + NodeCount,
     G::NodeId: SensibleNode + Send + Sync,
     <G as IntoNodeIdentifiers>::NodeIdentifiers: Send,
 {
@@ -115,7 +118,7 @@ where
         // Start parallelised BFS
         self.g
             .node_identifiers()
-            .map(|start_node| GraphPathSearchNode::init(start_node, self.clone()))
+            .map(|start_node| GraphPathSearchNode::init(start_node, &self))
             .par_bridge()
             .for_each(|start_search_node| {
                 // Include the start path
@@ -131,6 +134,62 @@ where
             });
 
         container
+    }
+}
+
+impl<G> PathQuery<G>
+where
+    G: IntoEdges
+        + Visitable
+        + IntoNodeIdentifiers
+        + Sync
+        + Send
+        + NodeCount
+        + GraphBase<NodeId = NodeIndex>,
+    <G as IntoNodeIdentifiers>::NodeIdentifiers: Send,
+{
+    /// Ensure that your nodes are indexed contigulously `0..n`
+    pub fn run_phlite(&self) -> PhlitePathContainer<G::NodeId> {
+        let k_max = match self.stopping_condition {
+            StoppingCondition::KMax(k_max) => k_max,
+            StoppingCondition::LMax(l_max) => l_max,
+        };
+        let l_max = match self.stopping_condition {
+            StoppingCondition::KMax(_) => None,
+            StoppingCondition::LMax(l_max) => Some(l_max),
+        };
+
+        let n_nodes = self.g.node_count();
+
+        // Setup container for paths and their indexes
+        let container = PhlitePathSearch::new(self.d.clone(), k_max, l_max, n_nodes);
+
+        let store_node = |node: GraphPathSearchNode<G>| {
+            let key = PathKey::build_from_path(&node.path, node.l);
+            let path_index =
+                PathIndex::from_indices(node.path.iter().map(|ni| ni.index()), n_nodes).unwrap();
+            container.store(&key, path_index);
+        };
+
+        // Start parallelised BFS
+        self.g
+            .node_identifiers()
+            .map(|start_node| GraphPathSearchNode::init(start_node, &self))
+            .par_bridge()
+            .for_each(|start_search_node| {
+                // Include the start path
+                store_node(start_search_node.clone());
+
+                // Start the search
+                // TODO: Experiment with Dfs vs Bfs
+                FastBfs::<GraphPathSearchNode<G>>::new(start_search_node, None, true)
+                    .into_par_iter()
+                    .for_each(|path_node| {
+                        store_node(path_node.expect("Search node never errors"));
+                    })
+            });
+
+        container.to_vecs()
     }
 }
 
@@ -231,22 +290,24 @@ where
     }
 }
 
+// TODO: Figure out how to do this iteration storing path as a PathIndex
+//       Otherwise we end up with lots of Vec
 #[derive(Clone)]
-struct GraphPathSearchNode<G: GraphRef>
+struct GraphPathSearchNode<'a, G: GraphRef>
 where
     <G as GraphBase>::NodeId: Eq + Hash,
 {
     path: Vec<G::NodeId>,
     l: usize,
-    path_query: PathQuery<G>,
+    path_query: &'a PathQuery<G>,
 }
 
-impl<G> GraphPathSearchNode<G>
+impl<'a, G> GraphPathSearchNode<'a, G>
 where
     G: GraphRef,
     <G as GraphBase>::NodeId: Eq + Hash,
 {
-    fn init(node: G::NodeId, path_query: PathQuery<G>) -> Self {
+    fn init(node: G::NodeId, path_query: &'a PathQuery<G>) -> Self {
         Self {
             path: vec![node],
             l: 0,
@@ -259,7 +320,7 @@ where
 // These should only depend on self.path
 // The other information is just kept around for score keeping
 
-impl<G> Debug for GraphPathSearchNode<G>
+impl<'a, G> Debug for GraphPathSearchNode<'a, G>
 where
     G: GraphRef,
     <G as GraphBase>::NodeId: Eq + Hash + Debug,
@@ -269,7 +330,7 @@ where
     }
 }
 
-impl<G> Hash for GraphPathSearchNode<G>
+impl<'a, G> Hash for GraphPathSearchNode<'a, G>
 where
     G: GraphRef,
     <G as GraphBase>::NodeId: Eq + Hash,
@@ -279,7 +340,7 @@ where
     }
 }
 
-impl<G> PartialEq for GraphPathSearchNode<G>
+impl<'a, G> PartialEq for GraphPathSearchNode<'a, G>
 where
     G: GraphRef,
     <G as GraphBase>::NodeId: Eq + Hash,
@@ -289,14 +350,14 @@ where
     }
 }
 
-impl<G> Eq for GraphPathSearchNode<G>
+impl<'a, G> Eq for GraphPathSearchNode<'a, G>
 where
     G: GraphRef,
     <G as GraphBase>::NodeId: Eq + Hash,
 {
 }
 
-impl<G> FastNode for GraphPathSearchNode<G>
+impl<'a, G> FastNode for GraphPathSearchNode<'a, G>
 where
     G: GraphRef + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Debug,
@@ -347,7 +408,7 @@ where
                 Ok(GraphPathSearchNode {
                     path: path_vec,
                     l: new_l,
-                    path_query: self.path_query.clone(),
+                    path_query: &self.path_query,
                 })
             });
 
@@ -446,6 +507,66 @@ where
             parent_container,
             node_pair,
             l,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct PhlitePathSearch<NodeId>
+where
+    NodeId: SensibleNode,
+{
+    pub paths: DashMap<PathKey<NodeId>, RwLock<BinaryHeap<PathIndex>>>,
+    pub d: Arc<DistanceMatrix<NodeId>>,
+    pub k_max: usize,
+    pub l_max: Option<usize>,
+    pub n_nodes: usize,
+}
+
+impl<NodeId> PhlitePathSearch<NodeId>
+where
+    NodeId: SensibleNode,
+{
+    fn new(
+        d: Arc<DistanceMatrix<NodeId>>,
+        k_max: usize,
+        l_max: Option<usize>,
+        n_nodes: usize,
+    ) -> Self {
+        Self {
+            paths: DashMap::new(),
+            d,
+            k_max,
+            l_max,
+            n_nodes,
+        }
+    }
+
+    fn store(&self, key: &PathKey<NodeId>, path: PathIndex) {
+        // We use or_default to insert an empty DashMap
+        // if we haven't found a path with this key before
+        // Note: To prevent race conditions, if key is not in self.paths
+        //        then we have to keep it locked until we've inserted the empty DashMap
+        self.paths
+            .entry(*key)
+            .or_default()
+            .write()
+            .unwrap()
+            .push(path);
+    }
+
+    fn to_vecs(self) -> PhlitePathContainer<NodeId> {
+        let paths = self
+            .paths
+            .into_iter()
+            .map(|(key, value)| (key, value.into_inner().unwrap().into_sorted_vec()))
+            .collect();
+        PhlitePathContainer {
+            paths,
+            d: self.d,
+            k_max: self.k_max,
+            l_max: self.l_max,
+            n_nodes: self.n_nodes,
         }
     }
 }
