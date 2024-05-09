@@ -13,6 +13,8 @@ use crate::{
     utils, MagError, Path, Representative,
 };
 
+// TODO: Switch over to phlite homology
+
 type PyDigraph = Graph<(), (), Directed, u32>;
 
 // TODO:

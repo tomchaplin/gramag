@@ -1,10 +1,11 @@
-use std::{collections::HashMap, iter, marker::PhantomData, ops::Deref, sync::Arc};
+use std::{iter, marker::PhantomData, ops::Deref, sync::Arc};
 
 use petgraph::graph::NodeIndex;
 use phlite::{
     fields::NonZeroCoefficient,
     matrices::{adaptors::MatrixWithBasis, BasisElement, ColBasis, MatrixOracle, SplitByDimension},
 };
+use rustc_hash::FxHashMap;
 
 use crate::{
     distances::DistanceMatrix,
@@ -205,7 +206,7 @@ pub struct MagnitudeBasis<'a, R>
 where
     R: IntoIterator<Item = usize> + Clone,
 {
-    paths: &'a HashMap<PathKey<NodeIndex>, Vec<PathIndex>>,
+    paths: &'a FxHashMap<PathKey<NodeIndex>, Vec<PathIndex>>,
     node_pair: (NodeIndex, NodeIndex),
     l: usize,
     k_range: R,
@@ -272,7 +273,7 @@ pub struct PhlitePathContainer<NodeId>
 where
     NodeId: SensibleNode,
 {
-    pub paths: HashMap<PathKey<NodeId>, Vec<PathIndex>>,
+    pub paths: FxHashMap<PathKey<NodeId>, Vec<PathIndex>>,
     pub d: Arc<DistanceMatrix<NodeId>>,
     pub k_max: usize,
     pub l_max: Option<usize>,
@@ -280,6 +281,26 @@ where
 }
 
 impl PhlitePathContainer<NodeIndex> {
+    pub fn max_found_l(&self) -> usize {
+        self.paths
+            .iter()
+            .map(|(key, _value)| key.l)
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn max_reps_dim(&self, l: usize) -> usize {
+        if self.k_max == l {
+            l
+        } else {
+            usize::min(self.k_max - 1, l)
+        }
+    }
+
+    pub fn max_ranks_dim(&self, l: usize) -> usize {
+        usize::min(self.k_max, l)
+    }
+
     pub fn magnitude_bounday<CF: NonZeroCoefficient>(&self) -> MagnitudeBoundary<'_, CF> {
         MagnitudeBoundary::new(self.n_nodes, self.d.deref())
     }

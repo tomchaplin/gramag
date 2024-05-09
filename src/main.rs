@@ -4,7 +4,7 @@ use phlite::{
     matrices::{MatrixOracle, MatrixRef},
     reduction::ClearedReductionMatrix,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
 use gramag::{
     distances::parallel_all_pairs_distance,
@@ -13,7 +13,7 @@ use gramag::{
     utils::format_rank_table,
 };
 
-fn main() {
+fn old_main() {
     let graph =
         Graph::<(), ()>::from_edges([(0, 1), (0, 2), (0, 3), (1, 5), (2, 5), (3, 4), (4, 5)]);
 
@@ -89,4 +89,48 @@ fn main() {
             .collect();
         println!("{:?}", rep);
     }
+}
+
+fn main() {
+    let n = 100;
+    let graph = Graph::<(), ()>::from_edges((0..n).map(|i| (i, (i + 1) % n)));
+    let distance_matrix = parallel_all_pairs_distance(&graph);
+    let distance_matrix = Arc::new(distance_matrix);
+    let k_max = 3;
+    let all_node_pairs: Vec<_> = graph
+        .node_identifiers()
+        .flat_map(|s| graph.node_identifiers().map(move |t| (s, t)))
+        .collect();
+
+    // Phlite
+    let tic = SystemTime::now();
+    let path_query = PathQuery::build(
+        &graph,
+        distance_matrix.clone(),
+        StoppingCondition::KMax(k_max - 1),
+    );
+    let container = path_query.run_phlite();
+    let ranks = gramag::phlite_homology::all_homology_ranks_default(&container, &all_node_pairs);
+    let toc = SystemTime::now();
+    let phlite_duration = toc.duration_since(tic).unwrap();
+    println!("Homology");
+    println!("{}", format_rank_table(ranks, Default::default()));
+
+    // LoPhat
+    let tic = SystemTime::now();
+    let path_query = PathQuery::build(
+        &graph,
+        distance_matrix.clone(),
+        StoppingCondition::KMax(k_max),
+    );
+    let container = path_query.run();
+    let ranks = all_homology_ranks_default(&container, &all_node_pairs);
+    let toc = SystemTime::now();
+    let lophat_duration = toc.duration_since(tic).unwrap();
+    println!("Homology");
+    println!("{}", format_rank_table(ranks, Default::default()));
+
+    // Report time
+    println!("Lophat: {}μs", lophat_duration.as_micros());
+    println!("Phlite: {}μs", phlite_duration.as_micros());
 }
