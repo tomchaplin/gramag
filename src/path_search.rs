@@ -15,7 +15,7 @@ use lophat::algorithms::{DecompositionAlgo, SerialAlgorithm, SerialDecomposition
 use lophat::columns::{Column, VecColumn};
 use lophat::options::LoPhatOptions;
 use par_dfs::sync::par::IntoParallelIterator;
-use par_dfs::sync::{FastBfs, FastNode};
+use par_dfs::sync::{FastDfs, FastNode};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{GraphBase, GraphRef, IntoEdges, IntoNodeIdentifiers, NodeCount, Visitable};
 use rayon::prelude::{ParallelBridge, ParallelIterator};
@@ -125,8 +125,7 @@ where
                 store_node(start_search_node.clone());
 
                 // Start the search
-                // TODO: Experiment with Dfs vs Bfs
-                FastBfs::<GraphPathSearchNode<G>>::new(start_search_node, None, true)
+                FastDfs::<GraphPathSearchNode<G>>::new(start_search_node, None, true)
                     .into_par_iter()
                     .for_each(|path_node| {
                         store_node(path_node.expect("Search node never errors"));
@@ -186,8 +185,7 @@ where
                 store_node(start_search_node.clone());
 
                 // Start the search
-                // TODO: Experiment with Dfs vs Bfs
-                FastBfs::<GraphPathSearchNode<G>>::new(start_search_node, None, true)
+                FastDfs::<GraphPathSearchNode<G>>::new(start_search_node, None, true)
                     .into_par_iter()
                     .for_each(|path_node| {
                         store_node(path_node.expect("Search node never errors"));
