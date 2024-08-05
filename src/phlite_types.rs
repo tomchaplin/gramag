@@ -46,6 +46,17 @@ impl PathIndex {
     pub fn dimension(self, n_points: usize) -> usize {
         self.to_vec(n_points).len() - 1
     }
+
+    /// Produces the path obtained by appending vertex to self
+    /// You must provide `current_length` which is the current length of the path (#vertices - 1)
+    /// No guarantees if `current_length` is incorrect
+    pub fn push_unchecked(self, vertex: usize, n_points: usize, current_length: u32) -> Self {
+        Self(self.0 + (vertex + 1) * (n_points + 1).pow(current_length + 1))
+    }
+
+    pub fn initial_vertex(self, n_points: usize) -> usize {
+        self.0.rem_euclid(n_points + 1)
+    }
 }
 
 pub struct MagnitudeBoundary<'a, CF>

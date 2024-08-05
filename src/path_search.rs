@@ -164,6 +164,11 @@ where
         // Setup container for paths and their indexes
         let container = PhlitePathSearch::new(self.d.clone(), k_max, l_max, n_nodes);
 
+        //let store_node = |node: crate::new_path_search::GraphPathSearchNode<G>| {
+        //    let key = node.path_key();
+        //    let path_index = node.path;
+        //    container.store(&key, path_index);
+        //};
         let store_node = |node: GraphPathSearchNode<G>| {
             let key = PathKey::build_from_path(&node.path, node.l);
             let path_index =

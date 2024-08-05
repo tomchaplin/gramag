@@ -96,7 +96,7 @@ fn main() {
     let graph = Graph::<(), ()>::from_edges((0..n).map(|i| (i, (i + 1) % n)));
     let distance_matrix = parallel_all_pairs_distance(&graph);
     let distance_matrix = Arc::new(distance_matrix);
-    let k_max = 3;
+    let k_max = 2;
     let all_node_pairs: Vec<_> = graph
         .node_identifiers()
         .flat_map(|s| graph.node_identifiers().map(move |t| (s, t)))
@@ -107,7 +107,7 @@ fn main() {
     let path_query = PathQuery::build(
         &graph,
         distance_matrix.clone(),
-        StoppingCondition::KMax(k_max - 1),
+        StoppingCondition::KMax(k_max),
     );
     let container = path_query.run_phlite();
     let ranks = gramag::phlite_homology::all_homology_ranks_default(&container, &all_node_pairs);
@@ -121,7 +121,7 @@ fn main() {
     let path_query = PathQuery::build(
         &graph,
         distance_matrix.clone(),
-        StoppingCondition::KMax(k_max),
+        StoppingCondition::KMax(k_max + 1),
     );
     let container = path_query.run();
     let ranks = all_homology_ranks_default(&container, &all_node_pairs);
@@ -131,6 +131,6 @@ fn main() {
     println!("{}", format_rank_table(ranks, Default::default()));
 
     // Report time
-    println!("Lophat: {}μs", lophat_duration.as_micros());
     println!("Phlite: {}μs", phlite_duration.as_micros());
+    println!("Lophat: {}μs", lophat_duration.as_micros());
 }
