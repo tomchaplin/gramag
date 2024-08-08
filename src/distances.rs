@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use std::{collections::HashMap, ops::Add};
 
 #[derive(Debug)]
-pub struct DistanceMatrix<NodeId: Eq + Hash>(DashMap<NodeId, HashMap<NodeId, usize>>);
+pub struct DistanceMatrix<NodeId: Eq + Hash>(pub DashMap<NodeId, HashMap<NodeId, usize>>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Distance {

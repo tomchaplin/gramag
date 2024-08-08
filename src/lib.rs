@@ -15,7 +15,7 @@ pub mod utils;
 // 3. Benchmark
 // 4. Deal with the no-edges case!
 
-#[cfg_attr(feautre = "python", pyclass)]
+//#[cfg_attr(feature = "python", pyclass)]
 #[derive(Debug)]
 pub enum MagError {
     NoRepresentatives,
@@ -50,3 +50,7 @@ pub type Representative<NodeId> = Vec<Path<NodeId>>;
 
 #[cfg(feature = "python")]
 mod bindings;
+
+// Swap out to these bindings in order to use lophat for homology calculations
+// #[cfg(feature = "python")]
+// mod old_bindings;

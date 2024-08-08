@@ -235,7 +235,7 @@ where
     }
 }
 
-type StlKey<NodeId> = ((NodeId, NodeId), usize);
+pub type StlKey<NodeId> = ((NodeId, NodeId), usize);
 
 pub struct DirectSum<Ref, NodeId, C, Decomp>
 where
@@ -254,7 +254,6 @@ where
     C: Column,
     Decomp: Decomposition<C>,
 {
-    // TODO: Allow Parallel Iterator
     pub fn new(
         summands: impl Iterator<Item = (StlKey<NodeId>, Arc<StlHomology<Ref, NodeId, C, Decomp>>)>,
     ) -> Self {

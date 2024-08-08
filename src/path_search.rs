@@ -564,6 +564,7 @@ where
             .into_iter()
             .map(|(key, value)| (key, value.into_inner().unwrap().into_sorted_vec()))
             .collect();
+        let paths = Arc::new(paths);
         PhlitePathContainer {
             paths,
             d: self.d,
