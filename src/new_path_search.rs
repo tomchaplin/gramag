@@ -1,3 +1,5 @@
+// WARNING: This module doesn't work at the moment, use path_search.rs instead!
+
 use par_dfs::sync::FastNode;
 use petgraph::{
     graph::NodeIndex,

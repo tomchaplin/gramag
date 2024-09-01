@@ -14,8 +14,6 @@ use crate::{
     utils, MagError, Path, Representative,
 };
 
-// TODO: Switch over to phlite homology
-
 type PyDigraph = Graph<(), (), Directed, u32>;
 
 // TODO:
@@ -381,6 +379,19 @@ impl PyDirectSum {
         py: Python<'_>,
     ) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
         py.allow_threads(|| Ok(convert_representatives(self.0.representatives()?)))
+    }
+
+    // TODO: Document!
+    fn summand(&self, node_pair: (u32, u32), l: usize) -> Option<PyStlHomology> {
+        let stl_key = (
+            (
+                NodeIndex::new(node_pair.0 as usize),
+                NodeIndex::new(node_pair.1 as usize),
+            ),
+            l,
+        );
+        let hom_arc = self.0.summands.get(&stl_key)?.clone();
+        Some(PyStlHomology(hom_arc))
     }
 
     /// Adds another summand to the direct sum, mutating the original sum.

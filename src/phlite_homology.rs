@@ -86,7 +86,7 @@ where
     CF: NonZeroCoefficient + Invertible + 'static,
     R: IntoIterator<Item = usize> + Clone,
 {
-    summands: FxHashMap<StlKey<NodeIndex>, Arc<PhliteStlHomology<Ref, CF, R>>>,
+    pub summands: FxHashMap<StlKey<NodeIndex>, Arc<PhliteStlHomology<Ref, CF, R>>>,
 }
 
 impl<Ref, CF, R> PhliteDirectSum<Ref, CF, R>
