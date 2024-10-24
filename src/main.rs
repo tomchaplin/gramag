@@ -82,7 +82,6 @@ fn _old_main() {
     for idx in diagram.essential.iter() {
         let rep: Vec<_> = v
             .column(*idx)
-            .unwrap()
             .map(|(coeff, path)| (coeff, path.to_vec(n_nodes)))
             .collect();
         println!("{:?}", rep);

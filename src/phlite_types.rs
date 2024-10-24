@@ -101,13 +101,12 @@ where
     fn column(
         &self,
         col: Self::ColT,
-    ) -> Result<impl Iterator<Item = (Self::CoefficientField, Self::RowT)>, phlite::PhliteError>
-    {
+    ) -> impl Iterator<Item = (Self::CoefficientField, Self::RowT)> {
         let path = col.to_vec(self.n_nodes);
 
         let k = path.len() - 1;
 
-        Ok((1..k).filter_map(move |i| {
+        (1..k).filter_map(move |i| {
             // Path without vertex i appears in boundary
             // iff removing doesn't change length
             let a = NodeIndex::new((&path)[i - 1]);
@@ -130,7 +129,7 @@ where
                 CF::one().additive_inverse()
             };
             Some((parity, bdry_path_idx))
-        }))
+        })
     }
 }
 
@@ -171,12 +170,11 @@ where
     fn column(
         &self,
         col: Self::ColT,
-    ) -> Result<impl Iterator<Item = (Self::CoefficientField, Self::RowT)>, phlite::PhliteError>
-    {
+    ) -> impl Iterator<Item = (Self::CoefficientField, Self::RowT)> {
         // TODO: Add check - if k == l then we know coboundary is 0!
         let path = col.to_vec(self.n_nodes);
         let k = path.len() - 1;
-        Ok((1..=k)
+        (1..=k)
             .flat_map(|i| (0..self.n_nodes).map(move |v| (i, v)))
             .filter_map(move |(insertion_position, v)| {
                 // Check that vertex is distinct from surrounding
@@ -217,7 +215,7 @@ where
                 let new_path_index = PathIndex::from_indices(new_path, self.n_nodes).unwrap();
 
                 Some((parity, new_path_index))
-            }))
+            })
     }
 }
 
