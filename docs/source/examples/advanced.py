@@ -25,8 +25,8 @@ print(format_rank_table(rk_hom))
 print("Rank of MC^{(0, 6)}:")
 print(format_rank_table(mg.rank_generators([(0, 6)])))
 
-for s in range(6):
-    for t in range(6):
+for s in range(7):
+    for t in range(7):
         # Ignoring l<=1 because they're usually boring
         for l in range(2, 6):
             # Gets Magnitude homology for fixed (s, t), l (and all k<=l)
