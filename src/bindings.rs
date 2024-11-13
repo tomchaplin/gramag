@@ -327,12 +327,12 @@ impl PyStlHomology {
     /// :return: A dictionary where ``output[k]`` stores a list of representatives for :math:`\mathrm{MH}_{k, l}^{(s, t)}` with ``len(output[k])`` :math:`=\operatorname{rank}(\mathrm{MH}_{k, l}^{(s, t)})`.
     /// :rtype: dict[usize, list[list[list[usize]]]]
     /// :raise TypeError: If this homology was computed with ``representatives = False`` then an error is raised.
-    #[getter]
-    fn get_representatives(
+    fn representatives(
         &self,
         py: Python<'_>,
-    ) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
-        py.allow_threads(|| Ok(convert_representatives(self.0.representatives()?)))
+        k: usize,
+    ) -> Result<Vec<Representative<usize>>, MagError> {
+        py.allow_threads(|| Ok(self.0.representatives(k)?))
     }
 }
 
@@ -373,12 +373,12 @@ impl PyDirectSum {
     /// :return: A dictionary where ``output[k]`` stores a list of representatives for :math:`\oplus_{((s, t), l)\in I}\mathrm{MH}_{k, l}^{\mathcal{P}}` with ``len(output[k])`` :math:`=\operatorname{rank}(\oplus_{((s, t), l)\in I}\mathrm{MH}_{k, l}^{\mathcal{P}})`.
     /// :rtype: dict[usize, list[list[list[usize]]]]
     /// :raise TypeError: If this homology was computed with ``representatives = False`` then an error is raised.
-    #[getter]
-    fn get_representatives(
+    fn representatives(
         &self,
         py: Python<'_>,
-    ) -> Result<HashMap<usize, Vec<Representative<u32>>>, MagError> {
-        py.allow_threads(|| Ok(convert_representatives(self.0.representatives()?)))
+        k: usize,
+    ) -> Result<Vec<Representative<usize>>, MagError> {
+        py.allow_threads(|| Ok(self.0.representatives(k)?))
     }
 
     // TODO: Document!
@@ -459,7 +459,8 @@ fn version() -> String {
 /// .. |l_homology| replace:: ``l_homology``
 /// .. _l_homology: #gramag.MagGraph.l_homology
 #[pymodule]
-fn gramag(_py: Python, m: &PyModule) -> PyResult<()> {
+fn gramag(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    pyo3_log::init();
     m.add_function(wrap_pyfunction!(format_rank_table, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_class::<MagGraph>()?;

@@ -19,6 +19,7 @@ pub mod utils;
 #[derive(Debug)]
 pub enum MagError {
     NoRepresentatives,
+    InsufficientKMax(usize, usize),         // (k, k_max)
     InsufficientLMax(usize, Option<usize>), // (l, l_max)
     BadArguments(String),
 }
@@ -27,6 +28,11 @@ impl std::fmt::Display for MagError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MagError::NoRepresentatives => write!(f, "Homology not computed with representatives"),
+            MagError::InsufficientKMax(k, k_max) => write!(
+                f,
+                "Asked for k={}, but only have homology up to k={}",
+                k, k_max
+            ),
             MagError::InsufficientLMax(l, l_max) => write!(
                 f,
                 "Asked for l={}, but only have paths up to l={}",

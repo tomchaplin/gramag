@@ -25,53 +25,40 @@ print(format_rank_table(rk_hom))
 print("Rank of MC^{(0, 6)}:")
 print(format_rank_table(mg.rank_generators([(0, 6)])))
 
-for s in range(7):
-    for t in range(7):
-        # Ignoring l<=1 because they're usually boring
-        for l in range(2, 6):
-            # Gets Magnitude homology for fixed (s, t), l (and all k<=l)
-            # Will return None if l > l_max
-            # Final boolean parameter determines whether representatives should be computed
-            hom = mg.stl_homology((s, t), l, representatives=True)
-            total_rank = sum([rk for rk in hom.ranks.values()])
-            if total_rank == 0:
-                continue
-            print(f"({(s, t)}, l={l})")
-            print(hom.ranks)
-            print(hom.representatives)
-            print("")
-
-
-print("l=2")
-l2_hom = mg.l_homology(2, representatives=True)
+print("l=2 homology ranks:")
+l2_hom = mg.l_homology(2)
 print(l2_hom.ranks)
-print(l2_hom.representatives)
+print("(k,l)=(2,2) reps:")
+print(l2_hom.representatives(2))
 print("")
 
-print("l=4")
-l2_hom = mg.l_homology(4, representatives=True)
-print(l2_hom.ranks)
-print(l2_hom.representatives)
+print("l=4 homology ranks:")
+l4_hom = mg.l_homology(4)
+print(l4_hom.ranks)
+print("(k,l)=(2,4) reps:")
+print(l4_hom.representatives(2))
 print("")
 
 
 print("Custom direct sum:")
+print("We add up all of the l rows and hence we see rank 2 homology in k=2:")
 ds = DirectSum(
     [
-        mg.stl_homology((s, t), l, representatives=True)
+        mg.stl_homology((s, t), l)
         for s in range(7)
         for t in range(7)
         for l in range(2, 7)
     ]
 )
 print(ds.ranks)
-print(ds.representatives)
+print(ds.representatives(2))
 print("")
 
 print("Fixed l=1, custom (s, t) list - computed in parallel!")
-ds2 = mg.l_homology(1, representatives=True, node_pairs=[(s, 6) for s in range(7)])
+ds2 = mg.l_homology(1, node_pairs=[(s, 6) for s in range(7)])
 print(ds2.ranks)
-print(ds2.representatives)
+print("This shows that there are 3 edges ending at 6")
+# print(ds2.representatives)
 print("")
 
 print("Errors:")
@@ -81,17 +68,15 @@ except TypeError as e:
     print(e)
 
 try:
-    mg.l_homology(2, representatives=False).representatives
-except TypeError as e:
-    print(e)
-
-try:
     mg.populate_paths(k_max=5, l_max=5)
 except TypeError as e:
     print(e)
 
-# No error because no homology
-print(mg.l_homology(5, representatives=False).representatives)
+try:
+    mg.l_homology(4).representatives(5)
+except TypeError as e:
+    print(e)
+
 print("")
 
 
@@ -100,7 +85,5 @@ print("Stopping condition based on k_max:")
 mg.populate_paths(k_max=3)
 print("MC:")
 print(format_rank_table(mg.rank_generators()))
-print("MH:")
-print(format_rank_table(mg.rank_homology(), zero="0", unknown="-", above_diagonal="0"))
-print("l=4 representatives")
-print(mg.l_homology(4, representatives=True).representatives)
+print("MH: (change table format)")
+print(format_rank_table(mg.rank_homology(), zero="0", unknown="-", above_diagonal="/"))

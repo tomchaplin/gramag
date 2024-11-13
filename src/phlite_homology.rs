@@ -1,9 +1,12 @@
 use std::{cmp::Reverse, collections::HashMap, ops::Deref, sync::Arc};
 
+use log::info;
+
 use petgraph::graph::NodeIndex;
 use phlite::{
     fields::{Invertible, NonZeroCoefficient, Z2},
-    reduction::Diagram,
+    matrices::MatrixOracle,
+    reduction::{standard_algo_with_diagram, Diagram},
 };
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -14,7 +17,7 @@ use crate::{
         MagnitudeReductionMatrix, PathIndex, PhlitePathContainer, PhliteStlPathContainer,
     },
     utils::rank_map_to_rank_vec,
-    MagError, Path, Representative,
+    MagError, Representative,
 };
 
 pub struct PhliteStlHomology<Ref, CF, R>
@@ -71,12 +74,61 @@ where
     }
 
     // TODO: Is it now possible to make this infallible?
-    pub fn representatives(
-        &self,
-    ) -> Result<HashMap<usize, Vec<Representative<NodeIndex>>>, MagError> {
+    pub fn representatives(&self, k: usize) -> Result<Vec<Representative<usize>>, MagError> {
         // Do involuted representatives here?
         // Maybe store hashmap in a cache?
-        todo!()
+        let max_homology_dim = self.stl_paths.max_homology_dim();
+        let homology_range = 0..=max_homology_dim;
+        if !homology_range.contains(&k) {
+            return Err(MagError::InsufficientKMax(k, max_homology_dim));
+        }
+
+        let n_nodes = self.stl_paths.parent_container.n_nodes;
+
+        // Build up the involution basis
+        // This is all of the killing columns and all the essential columns
+        let mut involution_basis = vec![];
+        for (death_cell, _birth_cell) in &self.diagram.pairings {
+            let dim = death_cell.0.dimension(n_nodes);
+            if dim == k {
+                involution_basis.push(death_cell.0);
+            }
+        }
+        for essential_cell in &self.diagram.essential {
+            let dim = essential_cell.0.dimension(n_nodes);
+            if dim == k {
+                involution_basis.push(essential_cell.0);
+            }
+        }
+        involution_basis.sort_unstable();
+
+        //info!(
+        //    "Reducing boundary {:?},{:?},{},{} ::: basis size = {}",
+        //    self.stl_paths.node_pair.0,
+        //    self.stl_paths.node_pair.1,
+        //    k,
+        //    self.stl_paths.l,
+        //    involution_basis.len()
+        //);
+
+        // Get boundary and restrict columns to involution basis
+        let boundary_matrix = self.stl_paths.parent_container.magnitude_bounday::<Z2>();
+        let boundary_matrix = boundary_matrix
+            .with_basis(involution_basis)
+            .with_trivial_filtration();
+        // Reduce
+        let (v_matrix, _boundary_diagram) = standard_algo_with_diagram(&boundary_matrix, false);
+
+        let mut representatives = vec![];
+        for essential_cell in &self.diagram.essential {
+            let v_col: Vec<_> = v_matrix
+                .column(essential_cell.0)
+                .map(|(_coeff, path_idx)| path_idx.to_vec(n_nodes))
+                .collect();
+            representatives.push(v_col);
+        }
+
+        Ok(representatives)
     }
 }
 
@@ -128,28 +180,14 @@ where
     }
 
     // Returns Err if any of the summands does not have reps
-    pub fn representatives(
-        &self,
-    ) -> Result<HashMap<usize, Vec<Representative<NodeIndex>>>, MagError> {
-        let mut reps: HashMap<usize, Vec<Vec<Path<NodeIndex>>>> = HashMap::new();
-        let mut n_summands_by_dim: HashMap<_, usize> = HashMap::new();
-        let n_summands = self.summands.len();
+    pub fn representatives(&self, k: usize) -> Result<Vec<Representative<usize>>, MagError> {
+        let mut reps = vec![];
 
-        // Collect all the reps
-        for stl_hom in self.summands.values() {
-            let stl_reps = stl_hom.representatives()?;
-            for (k, reps_k) in stl_reps {
-                reps.entry(k).or_default().extend(reps_k.into_iter());
-                *n_summands_by_dim.entry(k).or_default() += 1;
-            }
+        for summand in self.summands.values() {
+            let mut summand_reps = summand.representatives(k)?;
+            reps.append(&mut summand_reps);
         }
 
-        // Remove any dims that didn't appear in every summand
-        for (k, n) in n_summands_by_dim {
-            if n != n_summands {
-                reps.remove(&k);
-            }
-        }
         Ok(reps)
     }
 

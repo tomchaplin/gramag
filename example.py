@@ -1,4 +1,9 @@
 from gramag import MagGraph, format_rank_table
+import logging
+
+FORMAT = "%(levelname)s %(name)s %(asctime)-15s %(filename)s:%(lineno)d %(message)s"
+logging.basicConfig(format=FORMAT)
+logging.getLogger().setLevel(logging.INFO)
 
 # Create your graph
 # A few rules:
@@ -29,6 +34,6 @@ print("Rank of MH^{(0, 6)}:")
 print(format_rank_table(mg.rank_homology(node_pairs=[(0, i) for i in range(7)])))
 
 # Compute homology with representatives, at a given l
-homology = mg.l_homology(4, representatives=True)
+homology = mg.l_homology(4, node_pairs=[(0, 6)])
 print("Representatives for MH_{2, 4}:")
-print(homology.representatives[2])
+print(homology.representatives(2))
