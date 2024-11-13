@@ -1,5 +1,6 @@
 use std::{borrow::Borrow, collections::HashMap, iter, sync::Arc};
 
+use dashmap::DashMap;
 use rayon::prelude::*;
 
 use lophat::{algorithms::SerialDecomposition, columns::VecColumn};
@@ -133,6 +134,55 @@ impl MagGraph {
         let digraph = Graph::<(), ()>::from_edges(edges.iter());
         let distance_matrix = parallel_all_pairs_distance(&digraph);
         let distance_matrix = Arc::new(distance_matrix);
+
+        MagGraph {
+            digraph,
+            distance_matrix,
+            path_container: None,
+        }
+    }
+
+    /// Call this to compute the magnitude homology of a finite quasimetric space.
+    /// Simply pass in your distance matrix as the first parameter, using ``-1`` to denote an infinite distance.
+    /// You will get back a |MagGraph|_ (this is a bit of a hack) from which you can compute magnitude homology.
+    ///
+    /// :param distance_matrix: The distance matrix of your finite quasimetric space.
+    /// :type distance_matrix: list[list[int]]
+    /// :return: A |MagGraph|_ object representing the apce.
+    /// :rtype: MagGraph
+    ///
+    #[staticmethod]
+    fn from_distance_matrix(distance_matrix: Vec<Vec<isize>>) -> Self {
+        // Bit of a hack, we'll set up a line graph on the number of nodes
+        // and then input our own distance matrix in lieu of running dijkstra
+
+        let n_nodes = distance_matrix.len();
+        for row in &distance_matrix {
+            if row.len() != n_nodes {
+                panic!("Not given a square matrix");
+            }
+        }
+
+        let mut digraph = Graph::<(), ()>::new();
+        for i in 0..n_nodes {
+            let new_index = digraph.add_node(());
+            assert!(new_index.index() == i as usize)
+        }
+
+        let new_distance_matrix = DashMap::new();
+        for i in 0..n_nodes {
+            let mut row = HashMap::new();
+            for j in 0..n_nodes {
+                if distance_matrix[i][j] != -1 {
+                    let key = NodeIndex::from(j as u32);
+                    row.insert(key, distance_matrix[i][j] as usize);
+                }
+            }
+            let key = NodeIndex::from(i as u32);
+            new_distance_matrix.insert(key, row);
+        }
+
+        let distance_matrix = Arc::new(DistanceMatrix(new_distance_matrix));
 
         MagGraph {
             digraph,

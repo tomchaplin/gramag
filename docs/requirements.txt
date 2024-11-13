@@ -1,4 +1,4 @@
 sphinx
 sphinx-rtd-theme
 sphinxcontrib-napoleon
-gramag==0.4.0
+gramag==0.4.1
